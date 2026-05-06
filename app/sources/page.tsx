@@ -1,10 +1,11 @@
 "use client";
 
-import { ExternalLink, Plus, Trash2, X } from "lucide-react";
+import { Download, ExternalLink, Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { CATEGORIES } from "@/lib/categories";
-import type { JewelryCategory, Source } from "@/lib/types";
+import { SourceOnboarding } from "@/components/SourceOnboarding";
+import type { IngestProduct } from "@/lib/ingest/types";
+import type { Source } from "@/lib/types";
 
 export default function SourcesPage() {
   const hydrated = useStore((s) => s.hydrated);
@@ -16,6 +17,7 @@ export default function SourcesPage() {
   }
 
   const active = sources.filter((s) => s.active).length;
+  const ingestable = sources.filter((s) => s.platform === "shopify").length;
 
   return (
     <main className="flex flex-1 flex-col px-4 pt-safe pb-4">
@@ -23,20 +25,13 @@ export default function SourcesPage() {
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Sources</h1>
           <p className="text-xs text-muted-2">
-            {active} of {sources.length} active
+            {active} of {sources.length} active · {ingestable} auto-ingestable
           </p>
         </div>
-        <NewSourceButton />
+        <SourceOnboarding />
       </header>
 
-      <div className="rounded-2xl border border-accent-soft/50 bg-accent-soft/15 p-3 text-xs text-foreground/80">
-        <strong className="font-semibold">Heads up:</strong> automatic ingestion
-        from these sites is coming next. For now, this is where you keep the
-        URLs you want monitored — when scraping/import goes live, it&apos;ll
-        pull from the sites toggled active here.
-      </div>
-
-      <ul className="mt-3 flex flex-col gap-2">
+      <ul className="mt-1 flex flex-col gap-2">
         {sources.map((src) => (
           <SourceRow key={src.id} source={src} />
         ))}
@@ -51,143 +46,71 @@ export default function SourcesPage() {
   );
 }
 
-function NewSourceButton() {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
-  const [category, setCategory] = useState<JewelryCategory | "">("");
-  const [notes, setNotes] = useState("");
-  const addSource = useStore((s) => s.addSource);
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !url.trim()) return;
-    addSource({
-      name: name.trim(),
-      url: url.trim(),
-      category: category || undefined,
-      notes: notes.trim() || undefined,
-    });
-    setName("");
-    setUrl("");
-    setCategory("");
-    setNotes("");
-    setOpen(false);
-  };
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3.5 py-1.5 text-sm font-medium hover:bg-background"
-      >
-        <Plus className="h-4 w-4" />
-        Add
-      </button>
-    );
-  }
-
-  return (
-    <div className="fixed inset-0 z-40 flex items-end justify-center bg-foreground/30 backdrop-blur-[2px] sm:items-center">
-      <form
-        onSubmit={submit}
-        className="relative w-full max-w-md rounded-t-3xl bg-card p-5 pb-safe shadow-2xl sm:rounded-3xl"
-      >
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          aria-label="Close"
-          className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full hover:bg-background"
-        >
-          <X className="h-5 w-5" />
-        </button>
-        <h3 className="text-base font-semibold">Add source</h3>
-        <p className="mt-0.5 text-xs text-muted">
-          A website or category page to monitor for new arrivals.
-        </p>
-        <div className="mt-4 flex flex-col gap-3">
-          <Field label="Name">
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Mejuri new arrivals"
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-          </Field>
-          <Field label="URL">
-            <input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-          </Field>
-          <Field label="Category (optional)">
-            <select
-              value={category}
-              onChange={(e) =>
-                setCategory(e.target.value as JewelryCategory | "")
-              }
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            >
-              <option value="">Mixed / not specified</option>
-              {CATEGORIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-          <Field label="Notes (optional)">
-            <input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="e.g. check weekly · client X loves their stacking rings"
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
-            />
-          </Field>
-        </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="rounded-full border border-border bg-card px-4 py-1.5 text-sm font-medium"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!name.trim() || !url.trim()}
-            className="rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background disabled:opacity-40"
-          >
-            Add source
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-muted">{label}</span>
-      {children}
-    </label>
-  );
-}
-
 function SourceRow({ source }: { source: Source }) {
   const toggle = useStore((s) => s.toggleSourceActive);
   const remove = useStore((s) => s.removeSource);
   const update = useStore((s) => s.updateSource);
+  const addIngestedProducts = useStore((s) => s.addIngestedProducts);
+
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(source.notes ?? "");
+  const [pulling, setPulling] = useState(false);
+  const [pullResult, setPullResult] = useState<string | null>(null);
+
+  const canIngest = source.platform === "shopify" && !!source.feedUrl;
 
   const handleDelete = () => {
     if (confirm(`Remove "${source.name}" from sources?`)) remove(source.id);
   };
+
+  const handlePull = async () => {
+    if (!canIngest || !source.feedUrl) return;
+    setPulling(true);
+    setPullResult(null);
+    try {
+      const res = await fetch("/api/ingest-source", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          feedUrl: source.feedUrl,
+          retailer: source.name,
+          platform: source.platform,
+          limit: 50,
+        }),
+      });
+      const data = (await res.json()) as
+        | { ok: true; products: IngestProduct[] }
+        | { ok: false; reason: string };
+      if (!data.ok) {
+        setPullResult(`Failed: ${data.reason}`);
+      } else {
+        const { added, skipped } = addIngestedProducts(
+          source.id,
+          source.name,
+          data.products,
+        );
+        setPullResult(
+          added === 0
+            ? `Up to date — ${skipped} already in your library`
+            : `Added ${added} new product${added === 1 ? "" : "s"}${skipped ? `, skipped ${skipped} already in library` : ""}`,
+        );
+      }
+    } catch (e) {
+      setPullResult(
+        e instanceof Error ? `Failed: ${e.message}` : "Failed: network error",
+      );
+    } finally {
+      setPulling(false);
+    }
+  };
+
+  const platformLabel = source.platform
+    ? source.platform === "shopify"
+      ? "Shopify"
+      : source.platform === "custom"
+        ? "Custom"
+        : "Unknown"
+    : "Unknown";
 
   return (
     <li className="rounded-2xl border border-border bg-card p-3">
@@ -201,12 +124,22 @@ function SourceRow({ source }: { source: Source }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h3 className="truncate text-sm font-semibold">{source.name}</h3>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${
+                source.platform === "shopify"
+                  ? "bg-save/10 text-save"
+                  : "bg-background text-muted"
+              }`}
+            >
+              {platformLabel}
+            </span>
             {source.category && (
               <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
                 {source.category}
               </span>
             )}
           </div>
+
           <a
             href={source.url}
             target="_blank"
@@ -216,6 +149,32 @@ function SourceRow({ source }: { source: Source }) {
             <ExternalLink className="h-3 w-3" />
             <span className="truncate">{source.url}</span>
           </a>
+
+          {source.feedUrl && source.feedUrl !== source.url && (
+            <p className="mt-0.5 truncate font-mono text-[10px] text-muted-2">
+              feed: {source.feedUrl}
+            </p>
+          )}
+
+          {source.lastIngestAt && (
+            <p className="mt-0.5 text-[11px] text-muted-2">
+              Last pull: {new Date(source.lastIngestAt).toLocaleString()} ·{" "}
+              {source.lastIngestCount ?? 0} new
+            </p>
+          )}
+
+          {pullResult && (
+            <p
+              className={`mt-1.5 rounded-md px-2 py-1 text-xs ${
+                pullResult.startsWith("Failed")
+                  ? "bg-skip/10 text-skip"
+                  : "bg-save/10 text-save"
+              }`}
+            >
+              {pullResult}
+            </p>
+          )}
+
           {source.notes && !editingNotes && (
             <p className="mt-1.5 rounded-md bg-background px-2 py-1 text-xs italic text-muted">
               {source.notes}
@@ -239,7 +198,8 @@ function SourceRow({ source }: { source: Source }) {
               </button>
             </div>
           )}
-          <div className="mt-2 flex items-center gap-3 text-xs">
+
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <button
               onClick={() => toggle(source.id)}
               className={`rounded-full border px-2.5 py-0.5 font-medium ${
@@ -250,6 +210,25 @@ function SourceRow({ source }: { source: Source }) {
             >
               {source.active ? "Active" : "Inactive"}
             </button>
+            {canIngest && (
+              <button
+                onClick={handlePull}
+                disabled={pulling}
+                className="flex items-center gap-1 rounded-full border border-foreground/15 bg-foreground px-2.5 py-0.5 font-medium text-background disabled:opacity-50"
+              >
+                {pulling ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Pulling…
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-3 w-3" />
+                    Pull now
+                  </>
+                )}
+              </button>
+            )}
             <button
               onClick={() => setEditingNotes((o) => !o)}
               className="text-muted hover:text-foreground"

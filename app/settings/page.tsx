@@ -1,6 +1,7 @@
 "use client";
 
-import { RotateCcw, Trash2 } from "lucide-react";
+import { Eraser, RotateCcw, Trash2 } from "lucide-react";
+import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Badge } from "@/components/Badge";
 import { CATEGORY_LABEL } from "@/lib/categories";
@@ -13,7 +14,9 @@ export default function SettingsPage() {
   const folderItems = useStore((s) => s.folderItems);
   const restoreSkippedProduct = useStore((s) => s.restoreSkippedProduct);
   const restoreAllSkipped = useStore((s) => s.restoreAllSkipped);
+  const clearUnreviewedSeedProducts = useStore((s) => s.clearUnreviewedSeedProducts);
   const resetAll = useStore((s) => s.resetAll);
+  const [clearMessage, setClearMessage] = useState<string | null>(null);
 
   if (!hydrated) {
     return <main className="flex flex-1 items-center justify-center px-6 pt-safe" />;
@@ -126,8 +129,37 @@ export default function SettingsPage() {
         )}
       </section>
 
+      {/* Maintenance */}
+      <section className="mt-6 rounded-2xl border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold">Cleanup</h2>
+        <p className="mt-1 text-xs text-muted">
+          Drop the v0 placeholder products (the ones that came pre-loaded for
+          the demo) without affecting your folders, sources, or anything you
+          already saved. Only unreviewed mock products are removed.
+        </p>
+        <button
+          onClick={() => {
+            const removed = clearUnreviewedSeedProducts();
+            setClearMessage(
+              removed === 0
+                ? "No placeholder products left."
+                : `Cleared ${removed} placeholder product${removed === 1 ? "" : "s"}.`,
+            );
+          }}
+          className="mt-3 flex items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-card"
+        >
+          <Eraser className="h-3.5 w-3.5" />
+          Clear placeholder products
+        </button>
+        {clearMessage && (
+          <p className="mt-2 rounded-md bg-save/10 px-2 py-1 text-xs text-save">
+            {clearMessage}
+          </p>
+        )}
+      </section>
+
       {/* Reset */}
-      <section className="mt-8 rounded-2xl border border-skip/30 bg-skip/[0.04] p-4">
+      <section className="mt-3 rounded-2xl border border-skip/30 bg-skip/[0.04] p-4">
         <h2 className="text-sm font-semibold text-skip">Danger zone</h2>
         <p className="mt-1 text-xs text-muted">
           Wipes all saved products, custom folders, and added sources. Replaces
