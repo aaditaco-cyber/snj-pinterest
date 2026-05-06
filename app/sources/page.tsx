@@ -8,9 +8,8 @@ import type { JewelryCategory, Source } from "@/lib/types";
 
 export default function SourcesPage() {
   const hydrated = useStore((s) => s.hydrated);
-  const sources = useStore((s) =>
-    [...s.sources].sort((a, b) => a.name.localeCompare(b.name)),
-  );
+  const allSources = useStore((s) => s.sources);
+  const sources = [...allSources].sort((a, b) => a.name.localeCompare(b.name));
 
   if (!hydrated) {
     return <main className="flex flex-1 items-center justify-center px-6 pt-safe" />;

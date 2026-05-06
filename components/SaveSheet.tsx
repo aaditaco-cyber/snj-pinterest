@@ -13,9 +13,10 @@ export function SaveSheet({
   product: Product | null;
   onClose: () => void;
 }) {
-  const folders = useStore((s) =>
-    s.folders.filter((f) => !f.archived).sort((a, b) => a.order - b.order),
-  );
+  const allFolders = useStore((s) => s.folders);
+  const folders = allFolders
+    .filter((f) => !f.archived)
+    .sort((a, b) => a.order - b.order);
   const folderItems = useStore((s) => s.folderItems);
   const addToFolder = useStore((s) => s.addToFolder);
   const removeFromFolder = useStore((s) => s.removeFromFolder);

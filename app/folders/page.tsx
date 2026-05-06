@@ -8,9 +8,10 @@ import type { Folder } from "@/lib/types";
 
 export default function FoldersPage() {
   const hydrated = useStore((s) => s.hydrated);
-  const folders = useStore((s) =>
-    s.folders.filter((f) => !f.archived).sort((a, b) => a.order - b.order),
-  );
+  const allFolders = useStore((s) => s.folders);
+  const folders = allFolders
+    .filter((f) => !f.archived)
+    .sort((a, b) => a.order - b.order);
 
   if (!hydrated) {
     return <main className="flex flex-1 items-center justify-center px-6 pt-safe" />;
@@ -44,14 +45,13 @@ export default function FoldersPage() {
 }
 
 function FolderCard({ folder }: { folder: Folder }) {
-  const items = useStore((s) =>
-    s.folderItems
-      .filter((fi) => fi.folderId === folder.id)
-      .sort(
-        (a, b) =>
-          new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime(),
-      ),
-  );
+  const allFolderItems = useStore((s) => s.folderItems);
+  const items = allFolderItems
+    .filter((fi) => fi.folderId === folder.id)
+    .sort(
+      (a, b) =>
+        new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime(),
+    );
   const products = useStore((s) => s.products);
   const productById = new Map(products.map((p) => [p.id, p]));
   const previews = items

@@ -14,16 +14,17 @@ export default function FolderDetailPage() {
   const router = useRouter();
   const hydrated = useStore((s) => s.hydrated);
 
-  const folder = useStore((s) => s.folders.find((f) => f.id === params.id));
-  const items = useStore((s) =>
-    s.folderItems
-      .filter((fi) => fi.folderId === params.id)
-      .sort(
-        (a, b) =>
-          new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime(),
-      ),
-  );
-  const productsById = useStore((s) => new Map(s.products.map((p) => [p.id, p])));
+  const folders = useStore((s) => s.folders);
+  const folder = folders.find((f) => f.id === params.id);
+  const allFolderItems = useStore((s) => s.folderItems);
+  const items = allFolderItems
+    .filter((fi) => fi.folderId === params.id)
+    .sort(
+      (a, b) =>
+        new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime(),
+    );
+  const allProducts = useStore((s) => s.products);
+  const productsById = new Map(allProducts.map((p) => [p.id, p]));
 
   const removeFolder = useStore((s) => s.removeFolder);
   const updateFolder = useStore((s) => s.updateFolder);
