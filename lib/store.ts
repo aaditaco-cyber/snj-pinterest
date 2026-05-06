@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { SEED_FOLDERS, SEED_PRODUCTS, SEED_SOURCES } from "./seed";
+import type { IngestProduct } from "./ingest/types";
 import type {
   FilterState,
   Folder,
@@ -8,6 +9,7 @@ import type {
   JewelryCategory,
   Product,
   Source,
+  SourcePlatform,
   SwipeAction,
 } from "./types";
 
@@ -54,10 +56,25 @@ interface StoreState {
   updateFolderItem: (id: string, patch: Partial<FolderItem>) => void;
 
   // Sources
-  addSource: (input: { name: string; url: string; category?: JewelryCategory; notes?: string }) => string;
+  addSource: (input: {
+    name: string;
+    url: string;
+    feedUrl?: string;
+    platform?: SourcePlatform;
+    category?: JewelryCategory;
+    notes?: string;
+  }) => string;
   updateSource: (id: string, patch: Partial<Source>) => void;
   toggleSourceActive: (id: string) => void;
   removeSource: (id: string) => void;
+
+  // Ingestion
+  addIngestedProducts: (
+    sourceId: string,
+    retailer: string,
+    products: IngestProduct[],
+  ) => { added: number; skipped: number };
+  clearUnreviewedSeedProducts: () => number;
 
   // Admin
   resetAll: () => void;
@@ -299,6 +316,58 @@ export const useStore = create<StoreState>()(
         set((s) => ({
           sources: s.sources.filter((src) => src.id !== id),
         })),
+
+      addIngestedProducts: (sourceId, retailer, incoming) => {
+        let added = 0;
+        let skipped = 0;
+        const now = new Date().toISOString();
+        set((s) => {
+          const existingUrls = new Set(s.products.map((p) => p.productUrl));
+          const newProducts: Product[] = [];
+          for (const ip of incoming) {
+            if (!ip.productUrl || existingUrls.has(ip.productUrl)) {
+              skipped++;
+              continue;
+            }
+            existingUrls.add(ip.productUrl);
+            newProducts.push({
+              ...ip,
+              id: newId("p"),
+              sourceId,
+              dateDiscovered: now,
+              status: "new",
+            });
+            added++;
+          }
+          return {
+            products: [...s.products, ...newProducts],
+            sources: s.sources.map((src) =>
+              src.id === sourceId
+                ? { ...src, lastIngestAt: now, lastIngestCount: added }
+                : src,
+            ),
+          };
+        });
+        return { added, skipped };
+      },
+
+      clearUnreviewedSeedProducts: () => {
+        const seedIdPattern = /^p-\d{3}$/;
+        let removed = 0;
+        set((s) => {
+          const next = s.products.filter((p) => {
+            const isSeed = seedIdPattern.test(p.id);
+            const isUnreviewed = p.status === "new";
+            if (isSeed && isUnreviewed) {
+              removed++;
+              return false;
+            }
+            return true;
+          });
+          return { products: next };
+        });
+        return removed;
+      },
 
       resetAll: () =>
         set({

@@ -30,14 +30,22 @@ export interface Product {
   status: ProductStatus;
 }
 
+export type SourcePlatform = "shopify" | "custom" | "unknown";
+
 export interface Source {
   id: string;
   name: string;
   url: string;
+  /** URL the ingestion adapter actually hits — set during onboarding detection. */
+  feedUrl?: string;
+  /** Detected platform for this source. "unknown" means automated ingestion is not yet wired up. */
+  platform?: SourcePlatform;
   category?: JewelryCategory;
   notes?: string;
   active: boolean;
   dateAdded: string;
+  lastIngestAt?: string;
+  lastIngestCount?: number;
 }
 
 export interface Folder {
