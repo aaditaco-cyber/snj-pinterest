@@ -17,6 +17,7 @@ export function SourceOnboarding() {
   const [step, setStep] = useState<Step>("form");
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [windowDays, setWindowDays] = useState(30);
   const [category, setCategory] = useState<JewelryCategory | "">("");
   const [notes, setNotes] = useState("");
   const [detection, setDetection] = useState<DetectionResult | null>(null);
@@ -26,6 +27,7 @@ export function SourceOnboarding() {
     setStep("form");
     setName("");
     setUrl("");
+    setWindowDays(30);
     setCategory("");
     setNotes("");
     setDetection(null);
@@ -37,14 +39,18 @@ export function SourceOnboarding() {
     setTimeout(reset, 200);
   };
 
-  const detect = async () => {
+  const detect = async (overrideWindowDays?: number) => {
     setStep("detecting");
     setError(null);
     try {
       const res = await fetch("/api/detect-source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: url.trim(), retailer: name.trim() || undefined }),
+        body: JSON.stringify({
+          url: url.trim(),
+          retailer: name.trim() || undefined,
+          windowDays: overrideWindowDays ?? windowDays,
+        }),
       });
       const data = (await res.json()) as DetectionResult;
       setDetection(data);
@@ -57,18 +63,17 @@ export function SourceOnboarding() {
 
   const saveAndIngest = async () => {
     if (!detection?.ok) return;
+    const effectiveWindow = detection.windowDays;
     const sourceId = addSource({
       name: name.trim(),
       url: url.trim(),
       feedUrl: detection.feedUrl,
       platform: detection.platform,
+      freshnessWindowDays: effectiveWindow,
       category: category || undefined,
       notes: notes.trim() || undefined,
     });
-    // Ingest immediately on first save so the user sees the products land.
-    const incoming = detection.samples;
-    if (incoming.length > 0) {
-      // Pull the full feed (samples are only 6).
+    if (detection.inWindowCount > 0) {
       try {
         const res = await fetch("/api/ingest-source", {
           method: "POST",
@@ -77,7 +82,7 @@ export function SourceOnboarding() {
             feedUrl: detection.feedUrl,
             retailer: name.trim(),
             platform: detection.platform,
-            limit: 50,
+            windowDays: effectiveWindow,
           }),
         });
         const data = (await res.json()) as
@@ -88,7 +93,7 @@ export function SourceOnboarding() {
         }
       } catch {
         // If full ingest fails, at least the samples seeded the source.
-        addIngestedProducts(sourceId, name.trim(), incoming);
+        addIngestedProducts(sourceId, name.trim(), detection.samples);
       }
     }
     close();
@@ -99,6 +104,7 @@ export function SourceOnboarding() {
       name: name.trim(),
       url: url.trim(),
       platform: "unknown",
+      freshnessWindowDays: windowDays,
       category: category || undefined,
       notes: notes.trim() || undefined,
     });
@@ -132,13 +138,15 @@ export function SourceOnboarding() {
           <FormStep
             name={name}
             url={url}
+            windowDays={windowDays}
             category={category}
             notes={notes}
             onName={setName}
             onUrl={setUrl}
+            onWindowDays={setWindowDays}
             onCategory={setCategory}
             onNotes={setNotes}
-            onSubmit={detect}
+            onSubmit={() => detect()}
             onCancel={close}
           />
         )}
@@ -149,6 +157,10 @@ export function SourceOnboarding() {
           <PreviewStep
             detection={detection}
             onConfirm={saveAndIngest}
+            onChangeWindow={(d) => {
+              setWindowDays(d);
+              detect(d);
+            }}
             onTryAgain={() => setStep("form")}
           />
         )}
@@ -173,10 +185,12 @@ export function SourceOnboarding() {
 function FormStep({
   name,
   url,
+  windowDays,
   category,
   notes,
   onName,
   onUrl,
+  onWindowDays,
   onCategory,
   onNotes,
   onSubmit,
@@ -184,16 +198,19 @@ function FormStep({
 }: {
   name: string;
   url: string;
+  windowDays: number;
   category: JewelryCategory | "";
   notes: string;
   onName: (v: string) => void;
   onUrl: (v: string) => void;
+  onWindowDays: (v: number) => void;
   onCategory: (v: JewelryCategory | "") => void;
   onNotes: (v: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
   const ready = name.trim() && url.trim();
+  const presets = [7, 14, 30, 60, 90, 180];
   return (
     <form
       onSubmit={(e) => {
@@ -227,6 +244,42 @@ function FormStep({
             autoCorrect="off"
           />
         </Field>
+        <Field
+          label="Freshness window"
+          hint="Only ingest products published in the last N days. Set higher for slow-publishing boutiques."
+        >
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={windowDays}
+              onChange={(e) => {
+                const n = parseInt(e.target.value, 10);
+                if (Number.isFinite(n)) onWindowDays(Math.max(1, Math.min(365, n)));
+              }}
+              className="w-20 rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+            />
+            <span className="text-sm text-muted">days</span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {presets.map((d) => (
+              <button
+                type="button"
+                key={d}
+                onClick={() => onWindowDays(d)}
+                className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition ${
+                  windowDays === d
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border bg-card text-muted hover:text-foreground"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        </Field>
+
         <Field label="Category (optional)">
           <select
             value={category}
@@ -286,24 +339,37 @@ function DetectingStep({ url }: { url: string }) {
 function PreviewStep({
   detection,
   onConfirm,
+  onChangeWindow,
   onTryAgain,
 }: {
   detection: Extract<DetectionResult, { ok: true }>;
   onConfirm: () => void;
+  onChangeWindow: (days: number) => void;
   onTryAgain: () => void;
 }) {
+  const presets = [7, 14, 30, 60, 90, 180];
+  const noneInWindow = detection.inWindowCount === 0;
+
   return (
     <div>
       <div className="flex items-start gap-3">
-        <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-save" />
-        <div>
-          <h3 className="text-base font-semibold">Looks good</h3>
+        <CheckCircle2
+          className={`mt-0.5 h-6 w-6 shrink-0 ${noneInWindow ? "text-muted-2" : "text-save"}`}
+        />
+        <div className="min-w-0">
+          <h3 className="text-base font-semibold">
+            {noneInWindow ? "Feed found, no recent products" : "Looks good"}
+          </h3>
           <p className="mt-0.5 text-xs text-muted">
-            Found <strong>{detection.productCount} products</strong> via{" "}
+            <strong>{detection.inWindowCount}</strong> in last{" "}
+            <strong>{detection.windowDays} days</strong> ·{" "}
+            <span className="text-muted-2">
+              {detection.totalCount} total in feed
+            </span>{" "}
+            ·{" "}
             <span className="rounded bg-background px-1 py-0.5 font-mono text-[10px]">
               {detection.platform}
-            </span>{" "}
-            at:
+            </span>
           </p>
           <p className="mt-0.5 break-all text-[11px] text-muted-2">
             {detection.feedUrl}
@@ -311,34 +377,60 @@ function PreviewStep({
         </div>
       </div>
 
-      <div className="mt-4">
-        <p className="mb-2 text-xs font-medium text-muted">Sample of what we&apos;ll pull</p>
-        <div className="grid grid-cols-3 gap-2">
-          {detection.samples.slice(0, 6).map((p, i) => (
-            <div
-              key={i}
-              className="overflow-hidden rounded-xl border border-border bg-background"
+      {/* Window override */}
+      <div className="mt-4 rounded-2xl border border-border bg-background p-3">
+        <p className="text-[11px] font-medium text-muted">
+          Adjust the window
+        </p>
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {presets.map((d) => (
+            <button
+              key={d}
+              onClick={() => onChangeWindow(d)}
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition ${
+                detection.windowDays === d
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border bg-card text-muted hover:text-foreground"
+              }`}
             >
-              {p.imageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={p.imageUrl}
-                  alt={p.title}
-                  className="h-24 w-full object-cover"
-                />
-              )}
-              <div className="p-1.5">
-                <p className="truncate text-[10px] font-medium leading-tight">
-                  {p.title}
-                </p>
-                {p.priceDisplay && (
-                  <p className="text-[10px] text-muted">{p.priceDisplay}</p>
-                )}
-              </div>
-            </div>
+              {d}d
+            </button>
           ))}
         </div>
       </div>
+
+      {detection.samples.length > 0 && (
+        <div className="mt-4">
+          <p className="mb-2 text-xs font-medium text-muted">
+            Sample of what we&apos;ll pull
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {detection.samples.slice(0, 6).map((p, i) => (
+              <div
+                key={i}
+                className="overflow-hidden rounded-xl border border-border bg-background"
+              >
+                {p.imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={p.imageUrl}
+                    alt={p.title}
+                    className="h-24 w-full object-cover"
+                  />
+                )}
+                <div className="p-1.5">
+                  <p className="truncate text-[10px] font-medium leading-tight">
+                    {p.title}
+                  </p>
+                  {p.priceDisplay && (
+                    <p className="text-[10px] text-muted">{p.priceDisplay}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 flex justify-end gap-2">
         <button
@@ -349,9 +441,10 @@ function PreviewStep({
         </button>
         <button
           onClick={onConfirm}
-          className="rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background"
+          disabled={noneInWindow}
+          className="rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background disabled:opacity-40"
         >
-          Add and pull
+          {noneInWindow ? "Save without products" : "Add and pull"}
         </button>
       </div>
     </div>
@@ -395,11 +488,20 @@ function FallbackStep({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-muted">{label}</span>
       {children}
+      {hint && <span className="text-[11px] text-muted-2">{hint}</span>}
     </label>
   );
 }

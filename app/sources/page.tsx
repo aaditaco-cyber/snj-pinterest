@@ -1,6 +1,6 @@
 "use client";
 
-import { Download, ExternalLink, Loader2, Trash2 } from "lucide-react";
+import { Calendar, Download, ExternalLink, Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { SourceOnboarding } from "@/components/SourceOnboarding";
@@ -54,10 +54,13 @@ function SourceRow({ source }: { source: Source }) {
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(source.notes ?? "");
+  const [editingWindow, setEditingWindow] = useState(false);
+  const [windowDraft, setWindowDraft] = useState(source.freshnessWindowDays ?? 30);
   const [pulling, setPulling] = useState(false);
   const [pullResult, setPullResult] = useState<string | null>(null);
 
   const canIngest = source.platform === "shopify" && !!source.feedUrl;
+  const windowDays = source.freshnessWindowDays ?? 30;
 
   const handleDelete = () => {
     if (confirm(`Remove "${source.name}" from sources?`)) remove(source.id);
@@ -75,7 +78,7 @@ function SourceRow({ source }: { source: Source }) {
           feedUrl: source.feedUrl,
           retailer: source.name,
           platform: source.platform,
-          limit: 50,
+          windowDays,
         }),
       });
       const data = (await res.json()) as
@@ -224,10 +227,49 @@ function SourceRow({ source }: { source: Source }) {
                 ) : (
                   <>
                     <Download className="h-3 w-3" />
-                    Pull now
+                    Pull last {windowDays}d
                   </>
                 )}
               </button>
+            )}
+            {!editingWindow ? (
+              <button
+                onClick={() => {
+                  setWindowDraft(windowDays);
+                  setEditingWindow(true);
+                }}
+                className="flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-0.5 font-medium text-muted hover:text-foreground"
+              >
+                <Calendar className="h-3 w-3" />
+                {windowDays}d window
+              </button>
+            ) : (
+              <span className="flex items-center gap-1 rounded-full border border-accent bg-card px-2 py-0.5">
+                <Calendar className="h-3 w-3 text-muted" />
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={windowDraft}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    if (Number.isFinite(n)) setWindowDraft(n);
+                  }}
+                  autoFocus
+                  className="w-12 bg-transparent text-xs font-medium outline-none"
+                />
+                <span className="text-muted-2">d</span>
+                <button
+                  onClick={() => {
+                    const clamped = Math.max(1, Math.min(365, windowDraft));
+                    update(source.id, { freshnessWindowDays: clamped });
+                    setEditingWindow(false);
+                  }}
+                  className="ml-1 rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background"
+                >
+                  Save
+                </button>
+              </span>
             )}
             <button
               onClick={() => setEditingNotes((o) => !o)}
