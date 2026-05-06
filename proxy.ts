@@ -2,15 +2,20 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { hasSupabaseEnv } from "@/lib/supabase/env";
 
+const PUBLIC_PATHS = ["/login", "/auth/callback"];
+
 /**
- * Refreshes the Supabase auth cookie before each navigation. Without this,
- * server components see a stale session.
+ * Refreshes the Supabase auth cookie before each navigation and gates
+ * protected routes behind /login.
  *
  * Next.js 16 renamed middleware → proxy. The function name is `proxy`.
  * Runtime is nodejs; edge runtime is not supported in proxy.
  */
 export async function proxy(request: NextRequest) {
   if (!hasSupabaseEnv()) return NextResponse.next();
+
+  const path = request.nextUrl.pathname;
+  const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
 
   let response = NextResponse.next({ request });
 
@@ -35,13 +40,29 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  // Touch the user record to trigger a refresh if needed. Don't gate routing
-  // on this — login/logout flow is handled by /login and /api/auth/* routes.
-  await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  // Unauthenticated user trying to access a protected page → /login
+  if (!user && !isPublic) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  // Authenticated user landing on /login → bounce to home
+  if (user && path === "/login") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/";
+    return NextResponse.redirect(url);
+  }
 
   return response;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|api/cron|.*\\.svg|.*\\.png|.*\\.webmanifest).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|api/cron|.*\\.svg|.*\\.png|.*\\.webmanifest).*)",
+  ],
 };
