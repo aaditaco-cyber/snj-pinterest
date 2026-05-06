@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, ExternalLink, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, ExternalLink, Pencil, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Badge } from "@/components/Badge";
@@ -138,12 +138,22 @@ export default function FolderDetailPage() {
         )}
       </header>
 
+      {products.length > 0 && (
+        <Link
+          href={`/folders/${folder.id}/lookbook`}
+          className="flex items-center justify-center gap-2 rounded-2xl border border-accent-soft bg-accent-soft/15 px-4 py-3 text-sm font-semibold transition hover:bg-accent-soft/25"
+        >
+          <BookOpen className="h-4 w-4 text-accent" />
+          Make lookbook
+        </Link>
+      )}
+
       {products.length === 0 ? (
         <div className="flex flex-1 items-center justify-center py-16 text-center text-muted">
           Empty for now. Swipe-save products and tap this folder to fill it up.
         </div>
       ) : (
-        <ul className="flex flex-col gap-3 pb-4">
+        <ul className="mt-3 flex flex-col gap-3 pb-4">
           {products.map(({ item, product }) => (
             <FolderProductRow key={item.id} item={item} product={product} />
           ))}
