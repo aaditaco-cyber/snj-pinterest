@@ -40,6 +40,8 @@ export interface Source {
   feedUrl?: string;
   /** Detected platform for this source. "unknown" means automated ingestion is not yet wired up. */
   platform?: SourcePlatform;
+  /** Only ingest products published within the last N days. Defaults to 30 if unset. */
+  freshnessWindowDays?: number;
   category?: JewelryCategory;
   notes?: string;
   active: boolean;

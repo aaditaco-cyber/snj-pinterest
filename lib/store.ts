@@ -61,6 +61,7 @@ interface StoreState {
     url: string;
     feedUrl?: string;
     platform?: SourcePlatform;
+    freshnessWindowDays?: number;
     category?: JewelryCategory;
     notes?: string;
   }) => string;

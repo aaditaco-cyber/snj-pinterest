@@ -4,6 +4,10 @@ import type { DetectionResult, IngestProduct } from "./types";
 const USER_AGENT =
   "Mozilla/5.0 (compatible; SNJPinterestBot/0.1; +https://github.com/aaditaco-cyber/snj-pinterest)";
 
+const DEFAULT_WINDOW_DAYS = 30;
+const DEFAULT_LIMIT = 250; // Shopify single-page max
+const SAMPLE_SIZE = 6;
+
 // Shopify exposes a public product feed at /products.json on most stores. Collections
 // expose theirs at /collections/<handle>/products.json. We try the user's URL first
 // (if it points at a collection), then a list of common new-arrival handles, then the
@@ -61,13 +65,12 @@ function parseSourceUrl(rawUrl: string): { origin: string; collectionHandle?: st
   }
 }
 
-async function fetchFeed(feedUrl: string, limit = 50): Promise<ShopifyFeed | null> {
+async function fetchFeed(feedUrl: string, limit = DEFAULT_LIMIT): Promise<ShopifyFeed | null> {
   const url = `${feedUrl}?limit=${limit}`;
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
-      // Shopify feeds are public; no creds needed.
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) return null;
     const ct = res.headers.get("content-type") ?? "";
@@ -87,6 +90,7 @@ async function fetchFeed(feedUrl: string, limit = 50): Promise<ShopifyFeed | nul
 async function findWorkingFeed(
   origin: string,
   collectionHandle: string | undefined,
+  limit: number,
 ): Promise<{ feedUrl: string; feed: ShopifyFeed } | null> {
   const candidates: string[] = [];
   if (collectionHandle) {
@@ -99,7 +103,7 @@ async function findWorkingFeed(
   candidates.push(`${origin}/products.json`);
 
   for (const feedUrl of candidates) {
-    const feed = await fetchFeed(feedUrl, 50);
+    const feed = await fetchFeed(feedUrl, limit);
     if (feed && feed.products.length > 0) return { feedUrl, feed };
   }
   return null;
@@ -157,16 +161,33 @@ function shopifyProductToIngest(
   };
 }
 
+/**
+ * Sort by published_at desc and filter to only products published within `windowDays`.
+ * Products without a parseable published_at get filtered out (we'd rather miss
+ * uncertain dates than ingest stale inventory).
+ */
+function filterByWindow(products: ShopifyProduct[], windowDays: number): ShopifyProduct[] {
+  const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+  return products
+    .filter((p) => {
+      if (!p.published_at) return false;
+      const t = Date.parse(p.published_at);
+      return Number.isFinite(t) && t >= cutoff;
+    })
+    .sort((a, b) => Date.parse(b.published_at) - Date.parse(a.published_at));
+}
+
 /** Probe a candidate source URL. Returns either samples (success) or a reason (failure). */
 export async function detectShopify(
   sourceUrl: string,
   retailer: string,
+  windowDays: number = DEFAULT_WINDOW_DAYS,
 ): Promise<DetectionResult> {
   const parsed = parseSourceUrl(sourceUrl);
   if (!parsed) {
     return { ok: false, platform: "unknown", reason: "Couldn't parse the URL." };
   }
-  const found = await findWorkingFeed(parsed.origin, parsed.collectionHandle);
+  const found = await findWorkingFeed(parsed.origin, parsed.collectionHandle, DEFAULT_LIMIT);
   if (!found) {
     return {
       ok: false,
@@ -175,28 +196,34 @@ export async function detectShopify(
         "No Shopify product feed found at this URL. Site may not be Shopify-based, or it may block public feeds.",
     };
   }
-  const products = found.feed.products
-    .filter((p) => p.images.length > 0)
+  const allWithImages = found.feed.products.filter((p) => p.images.length > 0);
+  const inWindow = filterByWindow(allWithImages, windowDays);
+  const samples = inWindow
+    .slice(0, SAMPLE_SIZE)
     .map((p) => shopifyProductToIngest(p, parsed.origin, retailer, found.feedUrl));
   return {
     ok: true,
     platform: "shopify",
     feedUrl: found.feedUrl,
-    productCount: products.length,
-    samples: products.slice(0, 6),
+    totalCount: allWithImages.length,
+    inWindowCount: inWindow.length,
+    windowDays,
+    samples,
   };
 }
 
-/** Pull the full feed from a previously-detected Shopify source. */
+/** Pull a previously-detected Shopify source, returning only products within the window. */
 export async function ingestShopify(
   feedUrl: string,
   origin: string,
   retailer: string,
-  limit = 50,
+  windowDays: number = DEFAULT_WINDOW_DAYS,
+  limit: number = DEFAULT_LIMIT,
 ): Promise<IngestProduct[]> {
   const feed = await fetchFeed(feedUrl, limit);
   if (!feed) return [];
-  return feed.products
-    .filter((p) => p.images.length > 0)
-    .map((p) => shopifyProductToIngest(p, origin, retailer, feedUrl));
+  const withImages = feed.products.filter((p) => p.images.length > 0);
+  return filterByWindow(withImages, windowDays).map((p) =>
+    shopifyProductToIngest(p, origin, retailer, feedUrl),
+  );
 }

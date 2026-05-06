@@ -7,6 +7,7 @@ interface IngestBody {
   feedUrl?: unknown;
   retailer?: unknown;
   platform?: unknown;
+  windowDays?: unknown;
   limit?: unknown;
 }
 
@@ -24,17 +25,32 @@ export async function POST(req: Request) {
   if (typeof body.retailer !== "string" || !body.retailer.trim()) {
     return NextResponse.json({ ok: false, reason: "Missing retailer." }, { status: 400 });
   }
-  const platform = body.platform === "shopify" ? "shopify" : null;
-  if (!platform) {
+  if (body.platform !== "shopify") {
     return NextResponse.json(
       { ok: false, reason: "Only Shopify ingestion is supported in v0." },
       { status: 400 },
     );
   }
-  const limit = typeof body.limit === "number" && body.limit > 0 ? Math.min(body.limit, 250) : 50;
+
+  const windowDays = clampWindow(body.windowDays);
+  const limit =
+    typeof body.limit === "number" && body.limit > 0
+      ? Math.min(body.limit, 250)
+      : 250;
 
   const origin = new URL(body.feedUrl).origin;
-  const products = await ingestShopify(body.feedUrl, origin, body.retailer, limit);
+  const products = await ingestShopify(body.feedUrl, origin, body.retailer, windowDays, limit);
 
-  return NextResponse.json({ ok: true, productCount: products.length, products });
+  return NextResponse.json({
+    ok: true,
+    productCount: products.length,
+    windowDays,
+    products,
+  });
+}
+
+function clampWindow(v: unknown): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? parseInt(v, 10) : NaN;
+  if (!Number.isFinite(n)) return 30;
+  return Math.max(1, Math.min(365, Math.round(n)));
 }

@@ -6,7 +6,12 @@ export interface DetectionSuccess {
   ok: true;
   platform: SourcePlatform;
   feedUrl: string;
-  productCount: number;
+  /** Total products returned by the feed before any freshness filtering. */
+  totalCount: number;
+  /** Products within the freshness window (these are what an ingest will actually add). */
+  inWindowCount: number;
+  /** Days back the freshness filter looked. */
+  windowDays: number;
   samples: IngestProduct[];
 }
 
