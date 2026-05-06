@@ -87,7 +87,7 @@ function SourceRow({ source }: { source: Source }) {
       if (!data.ok) {
         setPullResult(`Failed: ${data.reason}`);
       } else {
-        const { added, skipped } = addIngestedProducts(
+        const { added, skipped } = await addIngestedProducts(
           source.id,
           source.name,
           data.products,

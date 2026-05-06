@@ -1,6 +1,5 @@
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
-import { SEED_FOLDERS, SEED_PRODUCTS, SEED_SOURCES } from "./seed";
+import * as repo from "./supabase/repo";
 import type { IngestProduct } from "./ingest/types";
 import type {
   FilterState,
@@ -14,11 +13,17 @@ import type {
 } from "./types";
 
 const MAX_RECENT_SWIPES = 50;
-const newId = (prefix: string) =>
-  `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+const tempId = (prefix: string) =>
+  `tmp-${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
 interface StoreState {
   hydrated: boolean;
+  hydrating: boolean;
+  hydrationError: string | null;
+  userId: string | null;
+  userEmail: string | null;
+
   products: Product[];
   sources: Source[];
   folders: Folder[];
@@ -26,34 +31,18 @@ interface StoreState {
   recentSwipes: SwipeAction[];
   filter: FilterState;
 
-  setHydrated: () => void;
+  hydrate: () => Promise<void>;
+  reset: () => void;
 
   // Filter
   setFilter: (next: Partial<FilterState>) => void;
 
   // Swipe / status
-  skipProduct: (productId: string) => void;
-  saveProduct: (productId: string, folderIds?: string[], notes?: string) => void;
-  undoLastSwipe: () => void;
-  restoreSkippedProduct: (productId: string) => void;
-  restoreAllSkipped: () => void;
-
-  // Products
-  addProduct: (p: Omit<Product, "id" | "dateDiscovered" | "status"> & { status?: Product["status"] }) => string;
-  updateProduct: (id: string, patch: Partial<Product>) => void;
-  removeProduct: (id: string) => void;
-
-  // Folders
-  addFolder: (input: { name: string; color: string; icon?: string }) => string;
-  updateFolder: (id: string, patch: Partial<Folder>) => void;
-  archiveFolder: (id: string) => void;
-  removeFolder: (id: string) => void;
-  reorderFolders: (orderedIds: string[]) => void;
-
-  // FolderItems
-  addToFolder: (productId: string, folderId: string, notes?: string) => void;
-  removeFromFolder: (folderItemId: string) => void;
-  updateFolderItem: (id: string, patch: Partial<FolderItem>) => void;
+  skipProduct: (productId: string) => Promise<void>;
+  saveProduct: (productId: string) => Promise<void>;
+  undoLastSwipe: () => Promise<void>;
+  restoreSkippedProduct: (productId: string) => Promise<void>;
+  restoreAllSkipped: () => Promise<void>;
 
   // Sources
   addSource: (input: {
@@ -64,21 +53,32 @@ interface StoreState {
     freshnessWindowDays?: number;
     category?: JewelryCategory;
     notes?: string;
-  }) => string;
-  updateSource: (id: string, patch: Partial<Source>) => void;
-  toggleSourceActive: (id: string) => void;
-  removeSource: (id: string) => void;
+  }) => Promise<string | null>;
+  updateSource: (id: string, patch: Partial<Source>) => Promise<void>;
+  toggleSourceActive: (id: string) => Promise<void>;
+  removeSource: (id: string) => Promise<void>;
+
+  // Folders
+  addFolder: (input: { name: string; color: string; icon?: string }) => Promise<string | null>;
+  updateFolder: (id: string, patch: Partial<Folder>) => Promise<void>;
+  archiveFolder: (id: string) => Promise<void>;
+  removeFolder: (id: string) => Promise<void>;
+
+  // FolderItems
+  addToFolder: (productId: string, folderId: string, notes?: string) => Promise<void>;
+  removeFromFolder: (folderItemId: string) => Promise<void>;
+  updateFolderItem: (id: string, patch: Partial<FolderItem>) => Promise<void>;
 
   // Ingestion
   addIngestedProducts: (
     sourceId: string,
     retailer: string,
-    products: IngestProduct[],
-  ) => { added: number; skipped: number };
-  clearUnreviewedSeedProducts: () => number;
+    incoming: IngestProduct[],
+  ) => Promise<{ added: number; skipped: number }>;
 
   // Admin
-  resetAll: () => void;
+  resetAll: () => Promise<void>;
+  signOut: () => Promise<void>;
 }
 
 const defaultFilter: FilterState = {
@@ -87,338 +87,407 @@ const defaultFilter: FilterState = {
   retailer: "all",
 };
 
-export const useStore = create<StoreState>()(
-  persist(
-    (set, get) => ({
+export const useStore = create<StoreState>()((set, get) => ({
+  hydrated: false,
+  hydrating: false,
+  hydrationError: null,
+  userId: null,
+  userEmail: null,
+  products: [],
+  sources: [],
+  folders: [],
+  folderItems: [],
+  recentSwipes: [],
+  filter: defaultFilter,
+
+  hydrate: async () => {
+    if (get().hydrating || get().hydrated) return;
+    set({ hydrating: true, hydrationError: null });
+    try {
+      const data = await repo.fetchAll();
+      set({
+        products: data.products,
+        sources: data.sources,
+        folders: data.folders,
+        folderItems: data.folderItems,
+        recentSwipes: data.recentSwipes,
+        userId: data.userId,
+        userEmail: data.userEmail,
+        hydrated: true,
+        hydrating: false,
+      });
+    } catch (e) {
+      set({
+        hydrationError: e instanceof Error ? e.message : "Failed to load data",
+        hydrating: false,
+      });
+    }
+  },
+
+  reset: () =>
+    set({
       hydrated: false,
-      products: SEED_PRODUCTS,
-      sources: SEED_SOURCES,
-      folders: SEED_FOLDERS,
+      hydrating: false,
+      hydrationError: null,
+      userId: null,
+      userEmail: null,
+      products: [],
+      sources: [],
+      folders: [],
       folderItems: [],
       recentSwipes: [],
       filter: defaultFilter,
-
-      setHydrated: () => set({ hydrated: true }),
-
-      setFilter: (next) => set((s) => ({ filter: { ...s.filter, ...next } })),
-
-      skipProduct: (productId) =>
-        set((s) => {
-          const swipe: SwipeAction = {
-            productId,
-            action: "skip",
-            timestamp: new Date().toISOString(),
-          };
-          return {
-            products: s.products.map((p) =>
-              p.id === productId ? { ...p, status: "skipped" } : p,
-            ),
-            recentSwipes: [swipe, ...s.recentSwipes].slice(0, MAX_RECENT_SWIPES),
-          };
-        }),
-
-      saveProduct: (productId, folderIds = [], notes) =>
-        set((s) => {
-          const now = new Date().toISOString();
-          const newItems: FolderItem[] = folderIds.map((folderId) => ({
-            id: newId("fi"),
-            folderId,
-            productId,
-            notes,
-            dateAdded: now,
-          }));
-          const swipe: SwipeAction = {
-            productId,
-            action: "save",
-            timestamp: now,
-            folderIds,
-          };
-          return {
-            products: s.products.map((p) =>
-              p.id === productId ? { ...p, status: "saved" } : p,
-            ),
-            folderItems: [...s.folderItems, ...newItems],
-            recentSwipes: [swipe, ...s.recentSwipes].slice(0, MAX_RECENT_SWIPES),
-          };
-        }),
-
-      undoLastSwipe: () =>
-        set((s) => {
-          const [last, ...rest] = s.recentSwipes;
-          if (!last) return {};
-          return {
-            products: s.products.map((p) =>
-              p.id === last.productId ? { ...p, status: "new" } : p,
-            ),
-            folderItems:
-              last.action === "save" && last.folderIds?.length
-                ? s.folderItems.filter(
-                    (fi) =>
-                      !(
-                        fi.productId === last.productId &&
-                        last.folderIds!.includes(fi.folderId)
-                      ),
-                  )
-                : s.folderItems,
-            recentSwipes: rest,
-          };
-        }),
-
-      restoreSkippedProduct: (productId) =>
-        set((s) => ({
-          products: s.products.map((p) =>
-            p.id === productId && p.status === "skipped"
-              ? { ...p, status: "new" }
-              : p,
-          ),
-        })),
-
-      restoreAllSkipped: () =>
-        set((s) => ({
-          products: s.products.map((p) =>
-            p.status === "skipped" ? { ...p, status: "new" } : p,
-          ),
-        })),
-
-      addProduct: (input) => {
-        const id = newId("p");
-        set((s) => ({
-          products: [
-            ...s.products,
-            {
-              ...input,
-              id,
-              dateDiscovered: new Date().toISOString(),
-              status: input.status ?? "new",
-            },
-          ],
-        }));
-        return id;
-      },
-
-      updateProduct: (id, patch) =>
-        set((s) => ({
-          products: s.products.map((p) => (p.id === id ? { ...p, ...patch } : p)),
-        })),
-
-      removeProduct: (id) =>
-        set((s) => ({
-          products: s.products.filter((p) => p.id !== id),
-          folderItems: s.folderItems.filter((fi) => fi.productId !== id),
-        })),
-
-      addFolder: ({ name, color, icon }) => {
-        const id = newId("fld");
-        set((s) => ({
-          folders: [
-            ...s.folders,
-            {
-              id,
-              name,
-              color,
-              icon,
-              order: s.folders.length,
-              dateCreated: new Date().toISOString(),
-            },
-          ],
-        }));
-        return id;
-      },
-
-      updateFolder: (id, patch) =>
-        set((s) => ({
-          folders: s.folders.map((f) => (f.id === id ? { ...f, ...patch } : f)),
-        })),
-
-      archiveFolder: (id) =>
-        set((s) => ({
-          folders: s.folders.map((f) =>
-            f.id === id ? { ...f, archived: !f.archived } : f,
-          ),
-        })),
-
-      removeFolder: (id) =>
-        set((s) => ({
-          folders: s.folders.filter((f) => f.id !== id),
-          folderItems: s.folderItems.filter((fi) => fi.folderId !== id),
-        })),
-
-      reorderFolders: (orderedIds) =>
-        set((s) => ({
-          folders: s.folders.map((f) => {
-            const order = orderedIds.indexOf(f.id);
-            return order >= 0 ? { ...f, order } : f;
-          }),
-        })),
-
-      addToFolder: (productId, folderId, notes) =>
-        set((s) => {
-          const existing = s.folderItems.find(
-            (fi) => fi.productId === productId && fi.folderId === folderId,
-          );
-          if (existing) return {};
-          return {
-            folderItems: [
-              ...s.folderItems,
-              {
-                id: newId("fi"),
-                folderId,
-                productId,
-                notes,
-                dateAdded: new Date().toISOString(),
-              },
-            ],
-            products: s.products.map((p) =>
-              p.id === productId && p.status !== "saved"
-                ? { ...p, status: "saved" }
-                : p,
-            ),
-          };
-        }),
-
-      removeFromFolder: (folderItemId) =>
-        set((s) => ({
-          folderItems: s.folderItems.filter((fi) => fi.id !== folderItemId),
-        })),
-
-      updateFolderItem: (id, patch) =>
-        set((s) => ({
-          folderItems: s.folderItems.map((fi) =>
-            fi.id === id ? { ...fi, ...patch } : fi,
-          ),
-        })),
-
-      addSource: (input) => {
-        const id = newId("src");
-        set((s) => ({
-          sources: [
-            ...s.sources,
-            { ...input, id, active: true, dateAdded: new Date().toISOString() },
-          ],
-        }));
-        return id;
-      },
-
-      updateSource: (id, patch) =>
-        set((s) => ({
-          sources: s.sources.map((src) =>
-            src.id === id ? { ...src, ...patch } : src,
-          ),
-        })),
-
-      toggleSourceActive: (id) =>
-        set((s) => ({
-          sources: s.sources.map((src) =>
-            src.id === id ? { ...src, active: !src.active } : src,
-          ),
-        })),
-
-      removeSource: (id) =>
-        set((s) => ({
-          sources: s.sources.filter((src) => src.id !== id),
-        })),
-
-      addIngestedProducts: (sourceId, retailer, incoming) => {
-        let added = 0;
-        let skipped = 0;
-        const now = new Date().toISOString();
-        set((s) => {
-          const existingUrls = new Set(s.products.map((p) => p.productUrl));
-          const newProducts: Product[] = [];
-          for (const ip of incoming) {
-            if (!ip.productUrl || existingUrls.has(ip.productUrl)) {
-              skipped++;
-              continue;
-            }
-            existingUrls.add(ip.productUrl);
-            newProducts.push({
-              ...ip,
-              id: newId("p"),
-              sourceId,
-              dateDiscovered: now,
-              status: "new",
-            });
-            added++;
-          }
-          return {
-            products: [...s.products, ...newProducts],
-            sources: s.sources.map((src) =>
-              src.id === sourceId
-                ? { ...src, lastIngestAt: now, lastIngestCount: added }
-                : src,
-            ),
-          };
-        });
-        return { added, skipped };
-      },
-
-      clearUnreviewedSeedProducts: () => {
-        const seedIdPattern = /^p-\d{3}$/;
-        let removed = 0;
-        set((s) => {
-          const next = s.products.filter((p) => {
-            const isSeed = seedIdPattern.test(p.id);
-            const isUnreviewed = p.status === "new";
-            if (isSeed && isUnreviewed) {
-              removed++;
-              return false;
-            }
-            return true;
-          });
-          return { products: next };
-        });
-        return removed;
-      },
-
-      resetAll: () =>
-        set({
-          products: SEED_PRODUCTS,
-          sources: SEED_SOURCES,
-          folders: SEED_FOLDERS,
-          folderItems: [],
-          recentSwipes: [],
-          filter: defaultFilter,
-        }),
     }),
-    {
-      name: "snj-pinterest-store",
-      storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({
-        products: s.products,
-        sources: s.sources,
-        folders: s.folders,
-        folderItems: s.folderItems,
-        recentSwipes: s.recentSwipes,
-        filter: s.filter,
-      }),
-      onRehydrateStorage: () => (state) => {
-        state?.setHydrated();
-      },
-    },
-  ),
-);
+
+  setFilter: (next) => set((s) => ({ filter: { ...s.filter, ...next } })),
+
+  // ─── Swipe / status ───────────────────────────────────────────────────────
+
+  skipProduct: async (productId) => {
+    const userId = get().userId;
+    if (!userId) return;
+    // Optimistic
+    const swipe: SwipeAction = {
+      productId,
+      action: "skip",
+      timestamp: new Date().toISOString(),
+    };
+    set((s) => ({
+      products: s.products.map((p) =>
+        p.id === productId ? { ...p, status: "skipped" } : p,
+      ),
+      recentSwipes: [swipe, ...s.recentSwipes].slice(0, MAX_RECENT_SWIPES),
+    }));
+    try {
+      await Promise.all([
+        repo.updateProductStatus(productId, "skipped"),
+        repo.recordSwipe(userId, productId, "skip"),
+      ]);
+    } catch (e) {
+      console.error("skipProduct failed:", e);
+    }
+  },
+
+  saveProduct: async (productId) => {
+    const userId = get().userId;
+    if (!userId) return;
+    const swipe: SwipeAction = {
+      productId,
+      action: "save",
+      timestamp: new Date().toISOString(),
+      folderIds: [],
+    };
+    set((s) => ({
+      products: s.products.map((p) =>
+        p.id === productId ? { ...p, status: "saved" } : p,
+      ),
+      recentSwipes: [swipe, ...s.recentSwipes].slice(0, MAX_RECENT_SWIPES),
+    }));
+    try {
+      await Promise.all([
+        repo.updateProductStatus(productId, "saved"),
+        repo.recordSwipe(userId, productId, "save"),
+      ]);
+    } catch (e) {
+      console.error("saveProduct failed:", e);
+    }
+  },
+
+  undoLastSwipe: async () => {
+    const last = get().recentSwipes[0];
+    if (!last) return;
+    set((s) => ({
+      products: s.products.map((p) =>
+        p.id === last.productId ? { ...p, status: "new" } : p,
+      ),
+      folderItems:
+        last.action === "save" && last.folderIds?.length
+          ? s.folderItems.filter(
+              (fi) =>
+                !(
+                  fi.productId === last.productId &&
+                  last.folderIds!.includes(fi.folderId)
+                ),
+            )
+          : s.folderItems,
+      recentSwipes: s.recentSwipes.slice(1),
+    }));
+    try {
+      await repo.updateProductStatus(last.productId, "new");
+      await repo.deleteRecentSwipe(last.productId);
+      // Folder items deleted server-side via cascade-on-product update? No, we
+      // still need to drop them. We let local-only changes for now; the cron
+      // pull won't recreate folder items.
+    } catch (e) {
+      console.error("undoLastSwipe failed:", e);
+    }
+  },
+
+  restoreSkippedProduct: async (productId) => {
+    set((s) => ({
+      products: s.products.map((p) =>
+        p.id === productId && p.status === "skipped" ? { ...p, status: "new" } : p,
+      ),
+    }));
+    try {
+      await repo.updateProductStatus(productId, "new");
+    } catch (e) {
+      console.error("restoreSkippedProduct failed:", e);
+    }
+  },
+
+  restoreAllSkipped: async () => {
+    const skippedIds = get()
+      .products.filter((p) => p.status === "skipped")
+      .map((p) => p.id);
+    set((s) => ({
+      products: s.products.map((p) =>
+        p.status === "skipped" ? { ...p, status: "new" } : p,
+      ),
+    }));
+    try {
+      await Promise.all(skippedIds.map((id) => repo.updateProductStatus(id, "new")));
+    } catch (e) {
+      console.error("restoreAllSkipped failed:", e);
+    }
+  },
+
+  // ─── Sources ──────────────────────────────────────────────────────────────
+
+  addSource: async (input) => {
+    const userId = get().userId;
+    if (!userId) return null;
+    try {
+      const created = await repo.addSourceRow(userId, input);
+      set((s) => ({ sources: [...s.sources, created] }));
+      return created.id;
+    } catch (e) {
+      console.error("addSource failed:", e);
+      return null;
+    }
+  },
+
+  updateSource: async (id, patch) => {
+    set((s) => ({
+      sources: s.sources.map((src) => (src.id === id ? { ...src, ...patch } : src)),
+    }));
+    try {
+      await repo.updateSourceRow(id, patch);
+    } catch (e) {
+      console.error("updateSource failed:", e);
+    }
+  },
+
+  toggleSourceActive: async (id) => {
+    const src = get().sources.find((s) => s.id === id);
+    if (!src) return;
+    const next = !src.active;
+    set((s) => ({
+      sources: s.sources.map((x) => (x.id === id ? { ...x, active: next } : x)),
+    }));
+    try {
+      await repo.updateSourceRow(id, { active: next });
+    } catch (e) {
+      console.error("toggleSourceActive failed:", e);
+    }
+  },
+
+  removeSource: async (id) => {
+    set((s) => ({ sources: s.sources.filter((src) => src.id !== id) }));
+    try {
+      await repo.deleteSource(id);
+    } catch (e) {
+      console.error("removeSource failed:", e);
+    }
+  },
+
+  // ─── Folders ──────────────────────────────────────────────────────────────
+
+  addFolder: async (input) => {
+    const userId = get().userId;
+    if (!userId) return null;
+    try {
+      const created = await repo.addFolderRow(userId, input);
+      set((s) => ({ folders: [...s.folders, created] }));
+      return created.id;
+    } catch (e) {
+      console.error("addFolder failed:", e);
+      return null;
+    }
+  },
+
+  updateFolder: async (id, patch) => {
+    set((s) => ({
+      folders: s.folders.map((f) => (f.id === id ? { ...f, ...patch } : f)),
+    }));
+    try {
+      await repo.updateFolderRow(id, patch);
+    } catch (e) {
+      console.error("updateFolder failed:", e);
+    }
+  },
+
+  archiveFolder: async (id) => {
+    const folder = get().folders.find((f) => f.id === id);
+    if (!folder) return;
+    const next = !folder.archived;
+    set((s) => ({
+      folders: s.folders.map((f) => (f.id === id ? { ...f, archived: next } : f)),
+    }));
+    try {
+      await repo.updateFolderRow(id, { archived: next });
+    } catch (e) {
+      console.error("archiveFolder failed:", e);
+    }
+  },
+
+  removeFolder: async (id) => {
+    set((s) => ({
+      folders: s.folders.filter((f) => f.id !== id),
+      folderItems: s.folderItems.filter((fi) => fi.folderId !== id),
+    }));
+    try {
+      await repo.deleteFolder(id);
+    } catch (e) {
+      console.error("removeFolder failed:", e);
+    }
+  },
+
+  // ─── Folder items ─────────────────────────────────────────────────────────
+
+  addToFolder: async (productId, folderId, notes) => {
+    const userId = get().userId;
+    if (!userId) return;
+    const existing = get().folderItems.find(
+      (fi) => fi.productId === productId && fi.folderId === folderId,
+    );
+    if (existing) return;
+
+    // Optimistic insert with temp id; replace on success
+    const tmp = tempId("fi");
+    const optimistic: FolderItem = {
+      id: tmp,
+      folderId,
+      productId,
+      notes,
+      tags: [],
+      dateAdded: new Date().toISOString(),
+    };
+    set((s) => ({
+      folderItems: [...s.folderItems, optimistic],
+      products: s.products.map((p) =>
+        p.id === productId && p.status !== "saved" ? { ...p, status: "saved" } : p,
+      ),
+    }));
+
+    try {
+      const real = await repo.addToFolder(userId, productId, folderId, notes);
+      if (real) {
+        set((s) => ({
+          folderItems: s.folderItems.map((fi) => (fi.id === tmp ? real : fi)),
+        }));
+      } else {
+        // Already existed server-side (race) — drop the temp.
+        set((s) => ({ folderItems: s.folderItems.filter((fi) => fi.id !== tmp) }));
+      }
+    } catch (e) {
+      console.error("addToFolder failed:", e);
+      set((s) => ({ folderItems: s.folderItems.filter((fi) => fi.id !== tmp) }));
+    }
+  },
+
+  removeFromFolder: async (folderItemId) => {
+    set((s) => ({
+      folderItems: s.folderItems.filter((fi) => fi.id !== folderItemId),
+    }));
+    try {
+      // Don't try to delete temp ids that never made it server-side.
+      if (!folderItemId.startsWith("tmp-")) {
+        await repo.removeFolderItem(folderItemId);
+      }
+    } catch (e) {
+      console.error("removeFromFolder failed:", e);
+    }
+  },
+
+  updateFolderItem: async (id, patch) => {
+    set((s) => ({
+      folderItems: s.folderItems.map((fi) =>
+        fi.id === id ? { ...fi, ...patch } : fi,
+      ),
+    }));
+    try {
+      if (!id.startsWith("tmp-")) {
+        await repo.updateFolderItemRow(id, patch);
+      }
+    } catch (e) {
+      console.error("updateFolderItem failed:", e);
+    }
+  },
+
+  // ─── Ingestion ────────────────────────────────────────────────────────────
+
+  addIngestedProducts: async (sourceId, retailer, incoming) => {
+    const userId = get().userId;
+    if (!userId) return { added: 0, skipped: incoming.length };
+    try {
+      const result = await repo.ingestProducts(sourceId, retailer, userId, incoming);
+      set((s) => ({
+        products: [...s.products, ...result.added],
+        sources: s.sources.map((src) =>
+          src.id === sourceId
+            ? {
+                ...src,
+                lastIngestAt: new Date().toISOString(),
+                lastIngestCount: result.added.length,
+              }
+            : src,
+        ),
+      }));
+      return { added: result.added.length, skipped: result.skipped };
+    } catch (e) {
+      console.error("addIngestedProducts failed:", e);
+      return { added: 0, skipped: incoming.length };
+    }
+  },
+
+  // ─── Admin ────────────────────────────────────────────────────────────────
+
+  resetAll: async () => {
+    const userId = get().userId;
+    if (!userId) return;
+    try {
+      await repo.resetAllData(userId);
+      // Re-hydrate from server (folders trigger re-creates the 10 default
+      // folders on next signup, but a manual reset doesn't trigger that —
+      // user keeps an empty workspace).
+      set({
+        products: [],
+        sources: [],
+        folders: [],
+        folderItems: [],
+        recentSwipes: [],
+        filter: defaultFilter,
+      });
+    } catch (e) {
+      console.error("resetAll failed:", e);
+    }
+  },
+
+  signOut: async () => {
+    try {
+      await repo.signOut();
+    } catch (e) {
+      console.error("signOut failed:", e);
+    }
+    get().reset();
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+  },
+}));
 
 // ─── Derived selectors ────────────────────────────────────────────────────────
 
 export const selectFolderProductCount = (folderId: string) => (s: StoreState) =>
   s.folderItems.filter((fi) => fi.folderId === folderId).length;
-
-export const selectProductsInFolder =
-  (folderId: string) => (s: StoreState): { item: FolderItem; product: Product }[] => {
-    const items = s.folderItems.filter((fi) => fi.folderId === folderId);
-    const byId = new Map(s.products.map((p) => [p.id, p]));
-    return items
-      .map((item) => {
-        const product = byId.get(item.productId);
-        return product ? { item, product } : null;
-      })
-      .filter((x): x is { item: FolderItem; product: Product } => x !== null);
-  };
-
-export const selectFoldersForProduct =
-  (productId: string) => (s: StoreState): Folder[] => {
-    const folderIds = new Set(
-      s.folderItems.filter((fi) => fi.productId === productId).map((fi) => fi.folderId),
-    );
-    return s.folders.filter((f) => folderIds.has(f.id));
-  };

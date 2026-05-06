@@ -12,8 +12,13 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+const HIDDEN_PATHS = ["/login", "/auth"];
+
 export function BottomNav() {
   const pathname = usePathname();
+  if (HIDDEN_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return null;
+  }
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur-md pb-safe"

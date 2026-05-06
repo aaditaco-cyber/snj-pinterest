@@ -64,7 +64,7 @@ export function SourceOnboarding() {
   const saveAndIngest = async () => {
     if (!detection?.ok) return;
     const effectiveWindow = detection.windowDays;
-    const sourceId = addSource({
+    const sourceId = await addSource({
       name: name.trim(),
       url: url.trim(),
       feedUrl: detection.feedUrl,
@@ -73,7 +73,7 @@ export function SourceOnboarding() {
       category: category || undefined,
       notes: notes.trim() || undefined,
     });
-    if (detection.inWindowCount > 0) {
+    if (sourceId && detection.inWindowCount > 0) {
       try {
         const res = await fetch("/api/ingest-source", {
           method: "POST",
@@ -89,18 +89,18 @@ export function SourceOnboarding() {
           | { ok: true; products: IngestProduct[] }
           | { ok: false; reason: string };
         if (data.ok) {
-          addIngestedProducts(sourceId, name.trim(), data.products);
+          await addIngestedProducts(sourceId, name.trim(), data.products);
         }
       } catch {
         // If full ingest fails, at least the samples seeded the source.
-        addIngestedProducts(sourceId, name.trim(), detection.samples);
+        await addIngestedProducts(sourceId, name.trim(), detection.samples);
       }
     }
     close();
   };
 
-  const saveWithoutIngest = () => {
-    addSource({
+  const saveWithoutIngest = async () => {
+    await addSource({
       name: name.trim(),
       url: url.trim(),
       platform: "unknown",

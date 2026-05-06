@@ -20,10 +20,10 @@ export function SwipeDeck({ deck }: { deck: Product[] }) {
 
   const handleSwipe = (product: Product, direction: "skip" | "save") => {
     if (direction === "save") {
-      saveProduct(product.id, []);
+      void saveProduct(product.id);
       setSavedProduct(product);
     } else {
-      skipProduct(product.id);
+      void skipProduct(product.id);
     }
   };
 
