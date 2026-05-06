@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SNJ Pinterest
 
-## Getting Started
+Mobile-first wholesale jewelry trend and product discovery. Swipe through new arrivals from monitored retailers, save promising styles into client/folder buckets, and curate notes for buyer conversations.
 
-First, run the development server:
+## What's working in v0
+
+- **Tinder-style swipe deck** of new-arrival products with visible Skip / Save / Undo buttons
+- **Save into multiple folders** — color-coded buckets like Trends, Bridal Ideas, client names; one product can live in many folders
+- **Folder views** with thumbnails, counts, per-product notes, rename/delete
+- **Source management** — list of jewelry sites you want monitored, with active/inactive toggle and notes
+- **Settings** — stats, restore-skipped, full reset
+- **Mobile PWA** — save to phone home screen for full-screen, no-browser-chrome experience
+- **Keyboard shortcuts** on desktop: `←` skip, `→` save, `↑` undo
+- **Local persistence** — everything saves to your browser's localStorage; survives refresh
+
+The seed data has 32 mock products across 10 retailers (Blue Nile, Brilliant Earth, Mejuri, Aurate, etc.) so the app is fully functional on first run.
+
+## What's coming next
+
+1. **Manual product import** — paste a product URL, the app fetches OG metadata, adds it to the deck
+2. **Per-site scrapers** — one adapter per retailer (Blue Nile, Brilliant Earth, etc.) to auto-pull new arrivals
+3. **Cloud sync** — swap localStorage for Supabase so the same data appears on phone + laptop
+4. **Search & filter** across all saved products (price range, retailer, notes)
+5. **Export folder** as JSON / CSV / PDF lookbook for client meetings
+
+## Run it locally
 
 ```bash
+cd snj-pinterest
+npm install        # only first time
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open http://localhost:3000 (or 3001 if 3000 is busy).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Other scripts:
+- `npm run build` — production build (verifies typecheck + bundles)
+- `npm run start` — serve the production build
+- `npm run typecheck` — TypeScript check, no emit
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deploy to Vercel
 
-## Learn More
+This project has its own git repo at `snj-pinterest/.git`. To deploy:
 
-To learn more about Next.js, take a look at the following resources:
+1. **Create a GitHub repo** (one-time):
+   - Go to https://github.com/new
+   - Name it `snj-pinterest` (or anything you like)
+   - Leave it empty (no README, no .gitignore)
+   - Click Create
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+2. **Push this code to it:**
+   ```bash
+   cd snj-pinterest
+   git remote add origin https://github.com/<your-username>/snj-pinterest.git
+   git branch -M main
+   git push -u origin main
+   ```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. **Import to Vercel:**
+   - Go to https://vercel.com/new
+   - Pick the `snj-pinterest` repo
+   - Accept all defaults (Next.js auto-detected)
+   - Click Deploy
 
-## Deploy on Vercel
+That's it. Vercel will give you a URL like `snj-pinterest.vercel.app`. Open it on your phone and tap "Add to Home Screen" in Safari/Chrome share menu to install as a PWA.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Subsequent deploys: just `git push origin main` — Vercel auto-deploys.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Tech stack
+
+- [Next.js 16](https://nextjs.org) — App Router, Turbopack, Server Components
+- [React 19](https://react.dev)
+- [Tailwind CSS 4](https://tailwindcss.com) — CSS-first config via `@theme`
+- [Zustand 5](https://github.com/pmndrs/zustand) — client state with `persist` middleware → localStorage
+- [Motion](https://motion.dev) (framer-motion successor) — swipe gestures and card animations
+- [Lucide](https://lucide.dev) — icons
+- TypeScript strict mode
+
+## Project structure
+
+```
+snj-pinterest/
+├── app/
+│   ├── layout.tsx           Root layout, metadata, bottom nav, viewport
+│   ├── page.tsx             Discover (home) — swipe deck
+│   ├── folders/
+│   │   ├── page.tsx         Folders index — grid with thumbnails + counts
+│   │   └── [id]/page.tsx    Folder detail — products + notes
+│   ├── sources/page.tsx     Source website management
+│   ├── settings/page.tsx    Stats, skipped restore, reset
+│   ├── icon.svg             Favicon (charcoal + champagne S monogram)
+│   ├── apple-icon.tsx       180x180 iOS home-screen icon (generated)
+│   ├── manifest.ts          PWA manifest
+│   └── globals.css          Tailwind theme tokens
+├── components/
+│   ├── SwipeDeck.tsx        Stack of cards + action buttons
+│   ├── SwipeCard.tsx        Single draggable product card
+│   ├── SaveSheet.tsx        Bottom-sheet folder picker (after a save)
+│   ├── BottomNav.tsx        4-tab navigation (Discover/Folders/Sources/Settings)
+│   ├── CategoryFilter.tsx   Horizontal scrolling chip row
+│   ├── NewFolderForm.tsx    Inline create-folder form with color picker
+│   └── Badge.tsx            Reusable info chip
+└── lib/
+    ├── types.ts             All TypeScript types
+    ├── categories.ts        Category constants + folder color palette
+    ├── seed.ts              10 sources, 10 folders, 32 mock products
+    └── store.ts             Zustand store with localStorage persistence
+```
+
+## Notes for the next session
+
+- All product images in seed data are placeholders from `picsum.photos`. They'll be replaced with real product images as we wire up ingestion.
+- The store has a clean abstraction for swipe actions, so swapping localStorage for cloud sync (Supabase) later is contained to `lib/store.ts`.
+- When adding real data ingestion, write per-site adapters under a new `lib/ingest/` directory and have each return `Omit<Product, "id" | "dateDiscovered" | "status">[]`. The store's `addProduct` accepts that shape.
