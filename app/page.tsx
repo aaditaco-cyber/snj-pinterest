@@ -2,6 +2,7 @@
 
 import { useStore } from "@/lib/store";
 import { SwipeDeck } from "@/components/SwipeDeck";
+import { CategoryFilter } from "@/components/CategoryFilter";
 import type { Product } from "@/lib/types";
 
 export default function Home() {
@@ -20,7 +21,7 @@ export default function Home() {
   const deck = filterDeck(products, filter.category);
 
   return (
-    <main className="flex flex-1 flex-col px-4 pt-safe pb-8">
+    <main className="flex flex-1 flex-col px-4 pt-safe pb-4">
       <header className="flex items-center justify-between py-3">
         <div>
           <h1 className="text-lg font-semibold tracking-tight">Discover</h1>
@@ -30,7 +31,9 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="flex flex-1 flex-col items-center justify-center">
+      <CategoryFilter />
+
+      <div className="flex flex-1 flex-col items-center justify-center pt-2">
         <SwipeDeck deck={deck} />
       </div>
     </main>
