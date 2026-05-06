@@ -12,7 +12,7 @@ type State =
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("aaditaco@gmail.com");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [state, setState] = useState<State>({ kind: "idle" });
 
@@ -61,6 +61,7 @@ export default function LoginPage() {
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-medium text-muted">Email</span>
             <input
+              autoFocus
               type="email"
               inputMode="email"
               autoComplete="email"
@@ -68,6 +69,7 @@ export default function LoginPage() {
               autoCorrect="off"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
               className="rounded-xl border border-border bg-card px-4 py-3 text-base outline-none focus:border-accent"
               disabled={submitting}
             />
@@ -77,7 +79,6 @@ export default function LoginPage() {
             <input
               type="password"
               autoComplete="current-password"
-              autoFocus
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Your passcode"
