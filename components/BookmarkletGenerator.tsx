@@ -1,8 +1,8 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { Bookmark, Copy, Loader2, RefreshCw, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Copy, Loader2, RefreshCw, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useStore } from "@/lib/store";
 import type { Source } from "@/lib/types";
 
@@ -26,10 +26,6 @@ export function BookmarkletGenerator({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  // React 18+ refuses to render or navigate javascript: URLs via its event
-  // system, so we set href on the DOM element via ref rather than as a prop.
-  // Drag-to-bookmark still picks up the DOM-level href correctly.
-  const linkRef = useRef<HTMLAnchorElement>(null);
 
   const open = source !== null;
 
@@ -74,14 +70,6 @@ export function BookmarkletGenerator({
       ? buildConsoleCode({ apiUrl, token, sourceId: source.id })
       : "";
   const linkLabel = source ? `SNJ → ${source.name}` : "SNJ";
-
-  // Set href on the bare DOM element after render — React-managed href would
-  // be sanitized.
-  useEffect(() => {
-    if (linkRef.current && bookmarklet) {
-      linkRef.current.setAttribute("href", bookmarklet);
-    }
-  }, [bookmarklet]);
 
   const handleRegenerate = async () => {
     if (!confirm("Regenerating invalidates any bookmarks already in your bar. Continue?")) {
@@ -178,23 +166,19 @@ export function BookmarkletGenerator({
                     <p className="mb-3 text-[10px] font-medium uppercase tracking-wide text-muted-2">
                       Drag this to your bookmarks bar
                     </p>
-                    <div className="flex justify-center">
-                      {/* eslint-disable-next-line @next/next/no-html-link-for-pages, jsx-a11y/anchor-is-valid */}
-                      <a
-                        ref={linkRef}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          alert(
-                            "Drag this to your bookmarks bar — clicking it here won't run the script.",
-                          );
-                        }}
-                        className="flex items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background no-underline shadow-sm hover:opacity-90"
-                        draggable
-                      >
-                        <Bookmark className="h-3.5 w-3.5 fill-current" />
-                        {linkLabel}
-                      </a>
-                    </div>
+                    {/*
+                       React 18+ sanitizes any javascript: URL it sees in href
+                       props or setAttribute calls inside its render. Inserting
+                       the anchor as raw HTML via dangerouslySetInnerHTML keeps
+                       React out of the path entirely, so the dragged bookmark
+                       gets the actual code instead of React's error stub.
+                    */}
+                    <div
+                      className="flex justify-center"
+                      dangerouslySetInnerHTML={{
+                        __html: buildLinkHtml(bookmarklet, linkLabel),
+                      }}
+                    />
                     <button
                       onClick={handleCopy}
                       className="mt-3 flex w-full items-center justify-center gap-1 rounded-full border border-border bg-card py-1.5 text-xs font-medium text-muted hover:text-foreground"
@@ -319,6 +303,35 @@ function buildBookmarklet({
   // a "simple request" and doesn't trigger a CORS preflight.
   const code = bookmarkletBody({ apiUrl, token, sourceId });
   return `javascript:${encodeURIComponent(code)}`;
+}
+
+function buildLinkHtml(bookmarklet: string, label: string): string {
+  // dangerouslySetInnerHTML doesn't go through React's URL sanitizer, so the
+  // javascript: href stays intact. Both bookmarklet and label are escaped to
+  // prevent any HTML/JS injection through unexpected source-name characters.
+  const safeHref = escapeHtmlAttr(bookmarklet);
+  const safeLabel = escapeHtml(label);
+  return `<a
+    href="${safeHref}"
+    draggable="true"
+    onclick="event.preventDefault();alert('Drag this to your bookmarks bar — clicking it here won\\'t run the script.');return false;"
+    class="flex items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background no-underline shadow-sm hover:opacity-90"
+  ><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.375rem"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>${safeLabel}</a>`;
+}
+
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function escapeHtmlAttr(str: string): string {
+  // Same as escapeHtml but used in a contexts where we know it's an attribute
+  // value. Kept separate in case we want to relax HTML-text escapes someday.
+  return escapeHtml(str);
 }
 
 /** Same code, unwrapped — for paste into DevTools console. */
