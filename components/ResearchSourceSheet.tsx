@@ -119,6 +119,7 @@ export function ResearchSourceSheet({
                 <AddResearchSourceForm
                   onCancel={() => setAdding(false)}
                   onAdded={() => setAdding(false)}
+                  onOpenBookmarklet={(s) => setBookmarkletSource(s)}
                 />
               )}
 
@@ -269,12 +270,15 @@ interface ProbePageResult {
 function AddResearchSourceForm({
   onCancel,
   onAdded,
+  onOpenBookmarklet,
 }: {
   onCancel: () => void;
   onAdded: () => void;
+  onOpenBookmarklet: (source: Source) => void;
 }) {
   const addResearchSource = useStore((s) => s.addResearchSource);
   const ingest = useStore((s) => s.ingestResearchSource);
+  const sources = useStore((s) => s.sources);
 
   const [name, setName] = useState("");
   const [pagesText, setPagesText] = useState("");
@@ -332,8 +336,18 @@ function AddResearchSourceForm({
       setSaving(false);
       return;
     }
-    await ingest(sourceId);
+    const okCount = probeResults.filter((r) => r.ok).length;
+    // If probing showed at least one page works, fire off the auto-ingest.
+    // Otherwise this is a bookmarklet-first source — skip the doomed scrape
+    // and route the user straight to the bookmarklet panel.
+    if (okCount > 0) {
+      await ingest(sourceId);
+    }
     setSaving(false);
+    if (okCount === 0) {
+      const created = sources.find((s) => s.id === sourceId);
+      if (created) onOpenBookmarklet(created);
+    }
     onAdded();
   };
 
@@ -349,6 +363,7 @@ function AddResearchSourceForm({
   if (step === "preview") {
     const totalCount = probeResults.reduce((acc, r) => acc + r.count, 0);
     const okCount = probeResults.filter((r) => r.ok).length;
+    const allBlocked = okCount === 0;
     return (
       <div className="mb-3 rounded-2xl border border-border bg-background p-3">
         <p className="text-xs font-medium">
@@ -374,6 +389,14 @@ function AddResearchSourceForm({
             </li>
           ))}
         </ul>
+        {allBlocked && (
+          <div className="mt-2 rounded-md bg-accent-soft/15 px-2 py-2 text-[11px] text-muted">
+            <strong className="text-foreground">No problem.</strong> This site
+            blocks our scraper. Add the source anyway — we&apos;ll set you up
+            with a bookmarklet you click while browsing the site to capture
+            products manually.
+          </div>
+        )}
         {error && (
           <p className="mt-2 rounded-md bg-skip/10 px-2 py-1 text-[11px] text-skip">
             {error}
@@ -388,11 +411,15 @@ function AddResearchSourceForm({
           </button>
           <button
             onClick={handleConfirm}
-            disabled={okCount === 0 || saving}
+            disabled={saving}
             className="flex items-center gap-1 rounded-full bg-foreground px-3 py-1 text-xs font-medium text-background disabled:opacity-40"
           >
             {saving && <Loader2 className="h-3 w-3 animate-spin" />}
-            {saving ? "Adding…" : "Add and pull"}
+            {saving
+              ? "Adding…"
+              : allBlocked
+                ? "Add for bookmarklet"
+                : "Add and pull"}
           </button>
         </div>
       </div>
