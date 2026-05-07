@@ -13,7 +13,7 @@
 import { NextResponse } from "next/server";
 import { extractProductsFromLd, inferCategory } from "@/lib/ingest/research";
 import { getSupabaseService } from "@/lib/supabase/service";
-import type { ProductInsert } from "@/lib/supabase/database.types";
+import type { ProductInsert, ProductUpdate } from "@/lib/supabase/database.types";
 
 export const runtime = "nodejs";
 
@@ -148,19 +148,53 @@ export async function POST(req: Request) {
     );
   }
 
-  // Dedupe vs already-stored products.
+  // Dedupe vs already-stored products. Pull existing fields too so we can
+  // back-fill missing ones on re-scrape (e.g. carat extracted in a later
+  // bookmarklet version that the original ingest didn't have).
   const urls = products.map((p) => p.productUrl);
   const { data: existing, error: existingErr } = await supabase
     .from("products")
-    .select("product_url")
+    .select(
+      "id, product_url, category, carat_weight, image_url, price, price_display, metal_type, stone_type",
+    )
     .in("product_url", urls);
   if (existingErr) {
     return cors({ ok: false, reason: "Dedupe lookup failed." }, 500);
   }
-  const existingSet = new Set((existing ?? []).map((r) => r.product_url));
+  const existingMap = new Map(
+    (existing ?? []).map((r) => [r.product_url, r] as const),
+  );
 
-  const fresh = products.filter((p) => !existingSet.has(p.productUrl));
-  const skipped = products.length - fresh.length;
+  type Update = { id: string; patch: ProductUpdate };
+  const fresh: typeof products = [];
+  const updates: Update[] = [];
+  for (const p of products) {
+    const ex = existingMap.get(p.productUrl);
+    if (!ex) {
+      fresh.push(p);
+      continue;
+    }
+    const patch: ProductUpdate = {};
+    // Only fill in fields the existing row is missing — don't overwrite good
+    // data with possibly-worse data on re-scrape.
+    if (p.caratWeight && !ex.carat_weight) patch.carat_weight = p.caratWeight;
+    if (
+      p.category &&
+      p.category !== "other" &&
+      (!ex.category || ex.category === "other")
+    )
+      patch.category = p.category;
+    if (p.imageUrl && !ex.image_url) patch.image_url = p.imageUrl;
+    if (p.price != null && ex.price == null) patch.price = p.price;
+    if (p.priceDisplay && !ex.price_display)
+      patch.price_display = p.priceDisplay;
+    if (p.metalType && !ex.metal_type) patch.metal_type = p.metalType;
+    if (p.stoneType && !ex.stone_type) patch.stone_type = p.stoneType;
+    if (Object.keys(patch).length > 0) {
+      updates.push({ id: ex.id, patch });
+    }
+  }
+  const skipped = products.length - fresh.length - updates.length;
 
   if (fresh.length > 0) {
     const rows: ProductInsert[] = fresh.map((p) => ({
@@ -184,6 +218,12 @@ export async function POST(req: Request) {
     }
   }
 
+  // Apply backfills serially. Volume is bounded by what's on a single page
+  // so this stays well under the route's time budget.
+  for (const u of updates) {
+    await supabase.from("products").update(u.patch).eq("id", u.id);
+  }
+
   await supabase
     .from("sources")
     .update({
@@ -192,17 +232,30 @@ export async function POST(req: Request) {
     })
     .eq("id", source.id);
 
+  const parts: string[] = [];
+  if (fresh.length > 0)
+    parts.push(`saved ${fresh.length} new product${fresh.length === 1 ? "" : "s"}`);
+  if (updates.length > 0)
+    parts.push(`updated ${updates.length} with new info`);
+  if (skipped > 0) parts.push(`${skipped} already complete`);
+  const message = parts.length
+    ? `${capitalize(parts.join(", "))} in ${source.name}.`
+    : `Nothing changed in ${source.name}.`;
+
   return cors(
     {
       ok: true,
       added: fresh.length,
+      updated: updates.length,
       skipped,
-      message: `Saved ${fresh.length} product${fresh.length === 1 ? "" : "s"}${
-        skipped ? ` (${skipped} already in library)` : ""
-      } to ${source.name}.`,
+      message,
     },
     200,
   );
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
 function cors(body: unknown, status: number) {

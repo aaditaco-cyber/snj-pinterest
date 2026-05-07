@@ -489,14 +489,24 @@ export function inferCategory(
   hint?: string | undefined,
 ): JewelryCategory {
   const haystack = `${title} ${hint ?? ""}`.toLowerCase();
-  if (/\bbridal|engagement|wedding band\b/.test(haystack)) return "bridal";
-  if (/\btennis\b/.test(haystack)) return "tennis";
-  if (/\bearring/.test(haystack)) return "earrings";
-  if (/\bbracelet|cuff|bangle\b/.test(haystack)) return "bracelets";
-  if (/\bnecklace|chain|choker\b/.test(haystack)) return "necklaces";
-  if (/\bpendant/.test(haystack)) return "pendants";
-  if (/\bring\b/.test(haystack)) return "rings";
-  if (/\bsapphire|emerald|ruby|opal|tanzanite|gemstone\b/.test(haystack))
+  // Order matters — most specific first.
+  if (/\b(?:tennis)\b/.test(haystack)) return "tennis";
+  if (/\b(?:bridal|engagement|wedding band|wedding ring|wedding set)\b/.test(haystack))
+    return "bridal";
+  if (/\b(?:earrings?|studs?|hoops?|huggies?)\b/.test(haystack)) return "earrings";
+  // Pendants checked before necklaces — "Diamond Pendant Necklace" reads as a
+  // pendant in product context. Captures locket / charm / medallion too.
+  if (/\b(?:pendant|locket|charm|medallion|solitaire pendant)\b/.test(haystack))
+    return "pendants";
+  if (/\b(?:necklace|chain|choker|lariat|riviera|station|bib|collar|y-?necklace)\b/.test(haystack))
+    return "necklaces";
+  if (/\b(?:bracelet|cuff|bangle|anklet)\b/.test(haystack)) return "bracelets";
+  if (/\b(?:rings?|band|signet|eternity)\b/.test(haystack)) return "rings";
+  if (
+    /\b(?:sapphire|emerald|ruby|opal|tanzanite|gemstone|amethyst|topaz|aquamarine|garnet|peridot|tourmaline|morganite)\b/.test(
+      haystack,
+    )
+  )
     return "gemstone";
   return "other";
 }
