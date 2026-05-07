@@ -417,8 +417,12 @@ for(var ii=0;ii<imgs.length;ii++){
     cur=cur.parentElement;
   }
   var priceN=priceText?parseFloat(priceText.replace(/[^0-9.]/g,'')):NaN;
+  // Require a parseable price > 0. Category/collection cards typically have
+  // no price; real product cards do. This is the most reliable filter
+  // against grabbing nav tiles.
+  if(!isFinite(priceN)||priceN<=0)continue;
   seen[href]=1;
-  domProducts.push({title:title,productUrl:href,imageUrl:src,price:isFinite(priceN)?priceN:null,priceDisplay:priceText||null});
+  domProducts.push({title:title,productUrl:href,imageUrl:src,price:priceN,priceDisplay:priceText});
 }
 console.log('[SNJ] dom products:',domProducts.length);
 var r=await fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:${JSON.stringify(token)},sourceId:${JSON.stringify(sourceId)},url:location.href,title:document.title,ldBlocks:parsed,og:og,domProducts:domProducts})});
