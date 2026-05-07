@@ -11,7 +11,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { extractProductsFromLd } from "@/lib/ingest/research";
+import { extractProductsFromLd, inferCategory } from "@/lib/ingest/research";
 import { getSupabaseService } from "@/lib/supabase/service";
 import type { ProductInsert } from "@/lib/supabase/database.types";
 
@@ -34,6 +34,15 @@ interface BookmarkletBody {
   title?: unknown;
   ldBlocks?: unknown;
   og?: unknown;
+  domProducts?: unknown;
+}
+
+interface DomProduct {
+  title: string;
+  productUrl: string;
+  imageUrl: string;
+  price: number | null;
+  priceDisplay: string | null;
 }
 
 export async function POST(req: Request) {
@@ -94,12 +103,36 @@ export async function POST(req: Request) {
       ? (body.og as Record<string, string>)
       : {};
 
-  const products = extractProductsFromLd(
+  let products = extractProductsFromLd(
     body.ldBlocks,
     og,
     body.url,
     source.name,
   );
+
+  // Fallback to DOM extraction when LD/OG had nothing — many React-rendered
+  // catalogs (Grown Brilliance, etc.) only ship Org/Breadcrumb LD on listing
+  // pages, with the actual products living in the rendered DOM.
+  if (products.length === 0 && Array.isArray(body.domProducts)) {
+    products = (body.domProducts as DomProduct[])
+      .filter(
+        (p) =>
+          p &&
+          typeof p.productUrl === "string" &&
+          p.productUrl &&
+          typeof p.title === "string" &&
+          p.title,
+      )
+      .map((p) => ({
+        title: p.title.trim(),
+        imageUrl: p.imageUrl || "",
+        productUrl: p.productUrl,
+        retailer: source.name,
+        price: typeof p.price === "number" && p.price > 0 ? p.price : undefined,
+        priceDisplay: p.priceDisplay ?? undefined,
+        category: inferCategory(p.title),
+      }));
+  }
 
   if (products.length === 0) {
     return cors(
@@ -107,7 +140,7 @@ export async function POST(req: Request) {
         ok: true,
         added: 0,
         skipped: 0,
-        message: "No products found in this page's data.",
+        message: "No products found in this page's data or DOM.",
       },
       200,
     );

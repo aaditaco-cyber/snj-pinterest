@@ -471,7 +471,7 @@ function ogMapToProduct(
 
 // ─── Category inference ─────────────────────────────────────────────────────
 
-function inferCategory(
+export function inferCategory(
   title: string,
   hint?: string | undefined,
 ): JewelryCategory {

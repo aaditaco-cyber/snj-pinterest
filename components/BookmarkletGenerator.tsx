@@ -358,5 +358,45 @@ function bookmarkletBody({
 }) {
   // The console.log calls help debug when this runs in DevTools — bookmarklet
   // path benefits too if the user has the console open.
-  return `(async()=>{try{console.log('[SNJ] bookmarklet running…');var blocks=Array.prototype.map.call(document.querySelectorAll('script[type="application/ld+json"]'),function(s){return s.textContent;}).filter(Boolean);var parsed=[];for(var i=0;i<blocks.length;i++){try{parsed.push(JSON.parse(blocks[i]));}catch(_){}}console.log('[SNJ] ld+json blocks parsed:',parsed.length);var og={};Array.prototype.forEach.call(document.querySelectorAll('meta'),function(m){var k=m.getAttribute('property')||m.getAttribute('name');var v=m.getAttribute('content');if(k&&v&&(k.indexOf('og:')===0||k.indexOf('product:')===0||k.indexOf('twitter:')===0))og[k]=v;});console.log('[SNJ] og keys:',Object.keys(og).length);var r=await fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:${JSON.stringify(token)},sourceId:${JSON.stringify(sourceId)},url:location.href,title:document.title,ldBlocks:parsed,og:og})});var d=await r.json();console.log('[SNJ] result:',d);alert('SNJ: '+(d.message||d.reason||'done'));}catch(e){console.error('[SNJ] error:',e);alert('SNJ error: '+(e&&e.message||e));}})();`;
+  return `(async()=>{try{
+console.log('[SNJ] bookmarklet running…');
+var blocks=Array.prototype.map.call(document.querySelectorAll('script[type="application/ld+json"]'),function(s){return s.textContent;}).filter(Boolean);
+var parsed=[];for(var i=0;i<blocks.length;i++){try{parsed.push(JSON.parse(blocks[i]));}catch(_){}}
+console.log('[SNJ] ld+json blocks parsed:',parsed.length,parsed);
+var og={};Array.prototype.forEach.call(document.querySelectorAll('meta'),function(m){var k=m.getAttribute('property')||m.getAttribute('name');var v=m.getAttribute('content');if(k&&v&&(k.indexOf('og:')===0||k.indexOf('product:')===0||k.indexOf('twitter:')===0))og[k]=v;});
+console.log('[SNJ] og keys:',Object.keys(og).length);
+// DOM-fallback extraction: any site that renders product cards in its DOM
+// (which most do, even Cloudflare-protected ones, in the user's tab) gets
+// scraped here. Heuristic: <a> whose href looks like a product detail URL,
+// containing an <img>, with a price string somewhere up the DOM tree.
+var domProducts=[];
+var seen={};
+var links=document.querySelectorAll('a[href]');
+for(var li=0;li<links.length;li++){
+  var a=links[li];
+  var href=a.href;
+  if(!href||seen[href])continue;
+  if(!/\\/products?\\/|\\/p\\/|\\/item\\/|\\/sku\\//i.test(href))continue;
+  var img=a.querySelector('img');
+  if(!img||!img.src||img.src.indexOf('data:')===0)continue;
+  seen[href]=1;
+  var title=img.alt||(a.textContent||'').trim();
+  if(title.length>200)title=title.substring(0,200);
+  if(!title)continue;
+  var priceText='';var cur=a;
+  for(var pi=0;pi<5&&cur;pi++){
+    var t=cur.textContent||'';
+    var pm=t.match(/\\$[\\d,]+(?:\\.[0-9]{2})?/);
+    if(pm){priceText=pm[0];break;}
+    cur=cur.parentElement;
+  }
+  var priceN=priceText?parseFloat(priceText.replace(/[^0-9.]/g,'')):NaN;
+  domProducts.push({title:title,productUrl:href,imageUrl:img.src,price:isFinite(priceN)?priceN:null,priceDisplay:priceText||null});
+}
+console.log('[SNJ] dom products:',domProducts.length);
+var r=await fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:${JSON.stringify(token)},sourceId:${JSON.stringify(sourceId)},url:location.href,title:document.title,ldBlocks:parsed,og:og,domProducts:domProducts})});
+var d=await r.json();
+console.log('[SNJ] result:',d);
+alert('SNJ: '+(d.message||d.reason||'done'));
+}catch(e){console.error('[SNJ] error:',e);alert('SNJ error: '+(e&&e.message||e));}})();`;
 }
