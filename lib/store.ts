@@ -40,6 +40,7 @@ interface StoreState {
   // Swipe / status
   skipProduct: (productId: string) => Promise<void>;
   saveProduct: (productId: string) => Promise<void>;
+  archiveProduct: (productId: string) => Promise<void>;
   undoLastSwipe: () => Promise<void>;
   restoreSkippedProduct: (productId: string) => Promise<void>;
   restoreAllSkipped: () => Promise<void>;
@@ -174,6 +175,21 @@ export const useStore = create<StoreState>()((set, get) => ({
       ]);
     } catch (e) {
       console.error("skipProduct failed:", e);
+    }
+  },
+
+  archiveProduct: async (productId) => {
+    const userId = get().userId;
+    if (!userId) return;
+    set((s) => ({
+      products: s.products.map((p) =>
+        p.id === productId ? { ...p, status: "archived" } : p,
+      ),
+    }));
+    try {
+      await repo.updateProductStatus(userId, productId, "archived");
+    } catch (e) {
+      console.error("archiveProduct failed:", e);
     }
   },
 

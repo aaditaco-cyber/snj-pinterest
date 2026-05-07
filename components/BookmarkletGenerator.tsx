@@ -371,43 +371,86 @@ var parsed=[];for(var i=0;i<blocks.length;i++){try{parsed.push(JSON.parse(blocks
 console.log('[SNJ] ld+json blocks parsed:',parsed.length,parsed);
 var og={};Array.prototype.forEach.call(document.querySelectorAll('meta'),function(m){var k=m.getAttribute('property')||m.getAttribute('name');var v=m.getAttribute('content');if(k&&v&&(k.indexOf('og:')===0||k.indexOf('product:')===0||k.indexOf('twitter:')===0))og[k]=v;});
 console.log('[SNJ] og keys:',Object.keys(og).length);
-// DOM extraction: every <img> with non-trivial alt text inside an <a>. We
-// avoid URL-pattern heuristics (sites use /products/, /jewelry/, /p/, plain
-// slug, etc.) and instead filter out obvious non-product links by URL.
+// DOM extraction. Group <img>s by their wrapping product link, score each
+// candidate image, pick the highest-scoring one per link. Filters out
+// obvious non-product paths and price-less category cards.
 var SKIP_PATH=/\\b(?:cart|checkout|account|signin|login|signup|register|search|wishlist|compare|about|contact|press|blog|stories|gallery|policy|terms|faq|help|support|careers|home)\\b/i;
+// URL hints — substrings in image URLs that imply shot type.
+var BAD_IMG=/(?:_model|_lifestyle|_wearing|_on-hand|_on-body|_worn|_back|_secondary|_alt|_hover|_swap|_two|_2x|_v2|_hand|_finger|_neck|_ear|_context|_scale|_human|_video|_zoom)/i;
+var GOOD_IMG=/(?:_main|_front|_default|_pdp|_primary|_hero|_one|_01|_v1|_flat|_white|_silo)/i;
+// Class hints — class-name keywords commonly used by storefront themes.
+var BAD_CLS=/\\b(?:secondary|hover|alt|back|second|swap|two|gallery-secondary|alternate)\\b/i;
+var GOOD_CLS=/\\b(?:primary|default|main|front|first|hero|featured|product-image-primary)\\b/i;
+
 function pickImgSrc(img){
   var src=img.currentSrc||img.src||img.getAttribute('data-src')||img.getAttribute('data-lazy-src')||img.getAttribute('data-original');
   if(!src&&img.srcset){var first=img.srcset.split(',')[0].trim().split(' ')[0];if(first)src=first;}
   if(src&&src.indexOf('data:')===0)return '';
   return src||'';
 }
-var domProducts=[];
-var seen={};
-var imgs=document.querySelectorAll('a img');
-for(var ii=0;ii<imgs.length;ii++){
-  var img=imgs[ii];
-  var src=pickImgSrc(img);
-  if(!src)continue;
-  // Skip tiny images (icons, sprites). naturalWidth is 0 for un-loaded imgs;
-  // fall back to width attr or computed width.
+
+function scoreImage(img,src,position){
+  var score=0;
+  // DOM order: first under the anchor wins by a few points.
+  score-=position*3;
+  // Class hints — check img and its parent.
+  var cls=((img.className||'')+' '+(img.parentElement?(img.parentElement.className||''):'')).toLowerCase();
+  if(GOOD_CLS.test(cls))score+=20;
+  if(BAD_CLS.test(cls))score-=30;
+  // URL hints.
+  if(GOOD_IMG.test(src))score+=15;
+  if(BAD_IMG.test(src))score-=25;
+  // Aspect ratio — square shots tend to be product, portrait tend to be model.
   var w=img.naturalWidth||img.width||parseInt(img.getAttribute('width')||'0',10);
   var h=img.naturalHeight||img.height||parseInt(img.getAttribute('height')||'0',10);
-  if(w&&w<80)continue;
-  if(h&&h<80)continue;
-  var a=img.closest('a');
-  if(!a||!a.href)continue;
+  if(w&&h){
+    var ratio=w/h;
+    if(ratio>0.85&&ratio<1.18)score+=5;
+    else if(ratio<0.7)score-=5;
+    else if(ratio>1.5)score-=3;
+  }
+  return score;
+}
+
+var domProducts=[];
+// Group images by their wrapping <a>.
+var anchorImgs=new Map();
+var allImgs=document.querySelectorAll('a img');
+for(var ai=0;ai<allImgs.length;ai++){
+  var aiimg=allImgs[ai];
+  var aianchor=aiimg.closest('a');
+  if(!aianchor)continue;
+  var list=anchorImgs.get(aianchor);
+  if(!list){list=[];anchorImgs.set(aianchor,list);}
+  list.push(aiimg);
+}
+anchorImgs.forEach(function(imgList,a){
+  if(!a||!a.href)return;
   var href=a.href;
-  if(seen[href])continue;
-  if(href.indexOf(location.origin)!==0&&href.indexOf('http')===0)continue; // off-site links
-  if(/^(?:mailto|tel|javascript):/i.test(href))continue;
-  if(/\\.(?:jpg|jpeg|png|gif|svg|webp)(?:\\?|$)/i.test(href))continue;
-  try{var u=new URL(href);if(SKIP_PATH.test(u.pathname))continue;}catch(_){}
+  if(href.indexOf(location.origin)!==0&&href.indexOf('http')===0)return;
+  if(/^(?:mailto|tel|javascript):/i.test(href))return;
+  if(/\\.(?:jpg|jpeg|png|gif|svg|webp)(?:\\?|$)/i.test(href))return;
+  try{var u=new URL(href);if(SKIP_PATH.test(u.pathname))return;}catch(_){}
+  // Score every candidate img, pick the highest.
+  var bestImg=null,bestSrc='',bestScore=-Infinity;
+  for(var ki=0;ki<imgList.length;ki++){
+    var cand=imgList[ki];
+    var csrc=pickImgSrc(cand);
+    if(!csrc)continue;
+    var cw=cand.naturalWidth||cand.width||parseInt(cand.getAttribute('width')||'0',10);
+    var ch=cand.naturalHeight||cand.height||parseInt(cand.getAttribute('height')||'0',10);
+    if(cw&&cw<80)continue;
+    if(ch&&ch<80)continue;
+    var sc=scoreImage(cand,csrc,ki);
+    if(sc>bestScore){bestScore=sc;bestImg=cand;bestSrc=csrc;}
+  }
+  if(!bestImg||!bestSrc)return;
   // Title: prefer img alt, else closest heading, else link text.
-  var title=(img.alt||'').trim();
+  var title=(bestImg.alt||'').trim();
   if(!title){var h2=a.querySelector('h1,h2,h3,h4');if(h2)title=(h2.textContent||'').trim();}
   if(!title)title=(a.textContent||'').trim().replace(/\\s+/g,' ');
   if(title.length>200)title=title.substring(0,200);
-  if(!title||title.length<3)continue;
+  if(!title||title.length<3)return;
   // Price: walk up to 6 ancestors looking for a $-prefixed number.
   var priceText='';var cur=a;
   for(var pi=0;pi<6&&cur;pi++){
@@ -417,13 +460,9 @@ for(var ii=0;ii<imgs.length;ii++){
     cur=cur.parentElement;
   }
   var priceN=priceText?parseFloat(priceText.replace(/[^0-9.]/g,'')):NaN;
-  // Require a parseable price > 0. Category/collection cards typically have
-  // no price; real product cards do. This is the most reliable filter
-  // against grabbing nav tiles.
-  if(!isFinite(priceN)||priceN<=0)continue;
-  seen[href]=1;
-  domProducts.push({title:title,productUrl:href,imageUrl:src,price:priceN,priceDisplay:priceText});
-}
+  if(!isFinite(priceN)||priceN<=0)return;
+  domProducts.push({title:title,productUrl:href,imageUrl:bestSrc,price:priceN,priceDisplay:priceText});
+});
 console.log('[SNJ] dom products:',domProducts.length);
 var r=await fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:${JSON.stringify(token)},sourceId:${JSON.stringify(sourceId)},url:location.href,title:document.title,ldBlocks:parsed,og:og,domProducts:domProducts})});
 var d=await r.json();

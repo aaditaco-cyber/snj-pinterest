@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, Settings2 } from "lucide-react";
+import { Bookmark, Settings2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
 import { CATEGORIES } from "@/lib/categories";
@@ -122,6 +122,9 @@ function filterAndSort(
   const sourceFilterActive = filter.selectedSourceIds.size > 0;
   return products
     .filter((p) => p.sourceId && researchSourceIds.has(p.sourceId))
+    // Per-user archived items disappear from the grid (saved items stay
+    // visible with a "Saved" badge).
+    .filter((p) => p.status !== "archived")
     .filter(
       (p) =>
         !sourceFilterActive ||
@@ -395,6 +398,7 @@ function Grid({
   savedIds: Set<string>;
   onSelect: (p: Product) => void;
 }) {
+  const archive = useStore((s) => s.archiveProduct);
   return (
     <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
       {products.map((p) => (
@@ -403,6 +407,7 @@ function Grid({
           product={p}
           saved={savedIds.has(p.id)}
           onClick={() => onSelect(p)}
+          onArchive={() => archive(p.id)}
         />
       ))}
     </ul>
@@ -413,13 +418,15 @@ function Card({
   product,
   saved,
   onClick,
+  onArchive,
 }: {
   product: Product;
   saved: boolean;
   onClick: () => void;
+  onArchive: () => void;
 }) {
   return (
-    <li>
+    <li className="group/card relative">
       <button
         onClick={onClick}
         className="group flex w-full flex-col overflow-hidden rounded-2xl border border-border bg-card text-left transition hover:border-foreground/30"
@@ -458,6 +465,22 @@ function Card({
             </p>
           )}
         </div>
+      </button>
+      {/*
+        Hover-only on desktop, always visible on touch devices via media query.
+        Stops the click from opening the product sheet, then archives the
+        product per-user so it disappears from this user's grid.
+      */}
+      <button
+        type="button"
+        aria-label="Hide from research grid"
+        onClick={(e) => {
+          e.stopPropagation();
+          onArchive();
+        }}
+        className="absolute left-1.5 top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-foreground/85 text-background opacity-0 backdrop-blur transition group-hover/card:opacity-100 motion-safe:active:scale-95 sm:opacity-0 max-sm:opacity-100"
+      >
+        <X className="h-3 w-3" />
       </button>
     </li>
   );
