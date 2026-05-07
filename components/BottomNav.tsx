@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FolderHeart, Globe, Settings, Sparkles } from "lucide-react";
+import { FolderHeart, Globe, Search, Settings, Sparkles } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Discover", icon: Sparkles },
+  { href: "/research", label: "Research", icon: Search },
   { href: "/folders", label: "Folders", icon: FolderHeart },
   { href: "/sources", label: "Sources", icon: Globe },
   { href: "/settings", label: "Settings", icon: Settings },

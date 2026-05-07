@@ -53,6 +53,8 @@ export type Database = {
   };
 };
 
+export type SourceKind = "discover" | "research";
+
 export type SourceRow = {
   id: string;
   added_by: string | null;
@@ -60,6 +62,8 @@ export type SourceRow = {
   url: string;
   feed_url: string | null;
   platform: "shopify" | "custom" | "unknown" | null;
+  kind: SourceKind;
+  pages: string[] | null;
   freshness_window_days: number;
   category: string | null;
   notes: string | null;
@@ -75,6 +79,8 @@ export type SourceInsert = {
   url: string;
   feed_url?: string | null;
   platform?: "shopify" | "custom" | "unknown" | null;
+  kind?: SourceKind;
+  pages?: string[] | null;
   freshness_window_days?: number;
   category?: string | null;
   notes?: string | null;

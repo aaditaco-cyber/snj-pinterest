@@ -34,6 +34,11 @@ create table public.sources (
   url text not null unique,
   feed_url text,
   platform text check (platform in ('shopify', 'custom', 'unknown')),
+  -- 'discover' = single Shopify feed, swipeable in /. 'research' = multi-page
+  -- aggregation, browseable in /research.
+  kind text not null default 'discover' check (kind in ('discover', 'research')),
+  -- For research sources only: list of source-page URLs to scrape and union.
+  pages text[],
   freshness_window_days integer not null default 30 check (freshness_window_days between 1 and 365),
   category text,
   notes text,
@@ -110,6 +115,7 @@ create index folder_items_folder_idx on public.folder_items (folder_id);
 create index folder_items_product_idx on public.folder_items (product_id);
 create index folder_items_user_idx on public.folder_items (user_id);
 create index sources_active_idx on public.sources (active);
+create index sources_kind_active_idx on public.sources (kind, active);
 create index swipe_actions_user_time_idx on public.swipe_actions (user_id, timestamp desc);
 
 -- ─── Row-Level Security ─────────────────────────────────────────────────────

@@ -172,6 +172,10 @@ function FolderProductRow({
 }) {
   const removeFromFolder = useStore((s) => s.removeFromFolder);
   const updateFolderItem = useStore((s) => s.updateFolderItem);
+  const sources = useStore((s) => s.sources);
+  const fromResearch =
+    !!product.sourceId &&
+    sources.find((s) => s.id === product.sourceId)?.kind === "research";
   const [notesOpen, setNotesOpen] = useState(false);
   const [notes, setNotes] = useState(item.notes ?? "");
 
@@ -190,11 +194,16 @@ function FolderProductRow({
         <h3 className="line-clamp-2 text-sm font-semibold leading-tight">
           {product.title}
         </h3>
-        <div className="mt-1 flex items-center gap-2">
+        <div className="mt-1 flex flex-wrap items-center gap-2">
           {product.priceDisplay && (
             <span className="text-sm font-semibold">{product.priceDisplay}</span>
           )}
           <Badge tone="accent">{CATEGORY_LABEL[product.category]}</Badge>
+          {fromResearch && (
+            <span className="rounded-full bg-foreground/[0.06] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              Research
+            </span>
+          )}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
           <a

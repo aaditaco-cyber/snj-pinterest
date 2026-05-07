@@ -54,9 +54,16 @@ interface StoreState {
     category?: JewelryCategory;
     notes?: string;
   }) => Promise<string | null>;
+  addResearchSource: (input: {
+    name: string;
+    pages: string[];
+    category?: JewelryCategory;
+    notes?: string;
+  }) => Promise<string | null>;
   updateSource: (id: string, patch: Partial<Source>) => Promise<void>;
   toggleSourceActive: (id: string) => Promise<void>;
   removeSource: (id: string) => Promise<void>;
+  ingestResearchSource: (sourceId: string) => Promise<{ added: number; skipped: number; reason?: string }>;
 
   // Folders
   addFolder: (input: { name: string; color: string; icon?: string }) => Promise<string | null>;
@@ -269,6 +276,58 @@ export const useStore = create<StoreState>()((set, get) => ({
     } catch (e) {
       console.error("addSource failed:", e);
       return null;
+    }
+  },
+
+  addResearchSource: async (input) => {
+    const userId = get().userId;
+    if (!userId) return null;
+    try {
+      const created = await repo.addResearchSourceRow(userId, input);
+      set((s) => ({ sources: [...s.sources, created] }));
+      return created.id;
+    } catch (e) {
+      console.error("addResearchSource failed:", e);
+      return null;
+    }
+  },
+
+  ingestResearchSource: async (sourceId) => {
+    const src = get().sources.find((s) => s.id === sourceId);
+    if (!src || src.kind !== "research" || !src.pages?.length) {
+      return { added: 0, skipped: 0, reason: "Source has no pages." };
+    }
+    try {
+      const res = await fetch("/api/research/ingest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pages: src.pages, retailer: src.name }),
+      });
+      const data = (await res.json()) as
+        | { ok: true; products: import("./ingest/types").IngestProduct[] }
+        | { ok: false; reason: string };
+      if (!data.ok) return { added: 0, skipped: 0, reason: data.reason };
+      const result = await repo.ingestProducts(sourceId, src.name, data.products);
+      set((s) => ({
+        products: [...s.products, ...result.added],
+        sources: s.sources.map((x) =>
+          x.id === sourceId
+            ? {
+                ...x,
+                lastIngestAt: new Date().toISOString(),
+                lastIngestCount: result.added.length,
+              }
+            : x,
+        ),
+      }));
+      return { added: result.added.length, skipped: result.skipped };
+    } catch (e) {
+      console.error("ingestResearchSource failed:", e);
+      return {
+        added: 0,
+        skipped: 0,
+        reason: e instanceof Error ? e.message : "Network error",
+      };
     }
   },
 

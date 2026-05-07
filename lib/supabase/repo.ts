@@ -6,6 +6,7 @@ import type {
   Product,
   ProductStatus,
   Source,
+  SourceKind,
   SourcePlatform,
   SwipeAction,
 } from "../types";
@@ -57,6 +58,8 @@ function sourceFromRow(r: SourceRow): Source {
     url: r.url,
     feedUrl: r.feed_url ?? undefined,
     platform: (r.platform ?? undefined) as SourcePlatform | undefined,
+    kind: (r.kind ?? "discover") as SourceKind,
+    pages: r.pages ?? undefined,
     freshnessWindowDays: r.freshness_window_days,
     category: (r.category ?? undefined) as JewelryCategory | undefined,
     notes: r.notes ?? undefined,
@@ -305,6 +308,8 @@ function sourcePatchToRow(p: Partial<Source>): SourceUpdate {
   if (p.url !== undefined) out.url = p.url;
   if (p.feedUrl !== undefined) out.feed_url = p.feedUrl ?? null;
   if (p.platform !== undefined) out.platform = p.platform;
+  if (p.kind !== undefined) out.kind = p.kind;
+  if (p.pages !== undefined) out.pages = p.pages ?? null;
   if (p.freshnessWindowDays !== undefined) out.freshness_window_days = p.freshnessWindowDays;
   if (p.category !== undefined) out.category = p.category ?? null;
   if (p.notes !== undefined) out.notes = p.notes ?? null;
@@ -312,6 +317,39 @@ function sourcePatchToRow(p: Partial<Source>): SourceUpdate {
   if (p.lastIngestAt !== undefined) out.last_ingest_at = p.lastIngestAt;
   if (p.lastIngestCount !== undefined) out.last_ingest_count = p.lastIngestCount;
   return out;
+}
+
+// ─── Research sources ───────────────────────────────────────────────────────
+
+export async function addResearchSourceRow(
+  userId: string,
+  input: {
+    name: string;
+    pages: string[];
+    category?: JewelryCategory;
+    notes?: string;
+  },
+): Promise<Source> {
+  // Research sources don't have a single canonical URL — we use the first
+  // page URL so the existing unique(url) constraint stays meaningful.
+  const primaryUrl = input.pages[0];
+  if (!primaryUrl) throw new Error("Research source needs at least one page URL.");
+  const row: SourceInsert = {
+    added_by: userId,
+    name: input.name,
+    url: primaryUrl,
+    kind: "research",
+    pages: input.pages,
+    platform: "custom",
+    freshness_window_days: 365,
+    category: input.category ?? null,
+    notes: input.notes ?? null,
+    active: true,
+  };
+  const supabase = getSupabaseBrowser();
+  const { data, error } = await supabase.from("sources").insert(row).select().single();
+  if (error) throw error;
+  return sourceFromRow(data);
 }
 
 export async function deleteSource(id: string): Promise<void> {

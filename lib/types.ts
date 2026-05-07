@@ -32,6 +32,8 @@ export interface Product {
 
 export type SourcePlatform = "shopify" | "custom" | "unknown";
 
+export type SourceKind = "discover" | "research";
+
 export interface Source {
   id: string;
   name: string;
@@ -40,6 +42,10 @@ export interface Source {
   feedUrl?: string;
   /** Detected platform for this source. "unknown" means automated ingestion is not yet wired up. */
   platform?: SourcePlatform;
+  /** "discover" = swipeable Shopify feed; "research" = browseable multi-page aggregation. */
+  kind: SourceKind;
+  /** Research sources only: the list of page URLs that get scraped and unioned. */
+  pages?: string[];
   /** Only ingest products published within the last N days. Defaults to 30 if unset. */
   freshnessWindowDays?: number;
   category?: JewelryCategory;

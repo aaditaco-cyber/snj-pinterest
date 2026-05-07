@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useStore } from "@/lib/store";
 import { SwipeDeck } from "@/components/SwipeDeck";
 import { CategoryFilter } from "@/components/CategoryFilter";
@@ -8,7 +9,15 @@ import type { Product } from "@/lib/types";
 export default function Home() {
   const hydrated = useStore((s) => s.hydrated);
   const products = useStore((s) => s.products);
+  const sources = useStore((s) => s.sources);
   const filter = useStore((s) => s.filter);
+
+  // Products from research sources should never appear in the swipe deck —
+  // research is a deliberate browse experience, not a swipe through everything.
+  const researchSourceIds = useMemo(
+    () => new Set(sources.filter((s) => s.kind === "research").map((s) => s.id)),
+    [sources],
+  );
 
   if (!hydrated) {
     return (
@@ -18,7 +27,7 @@ export default function Home() {
     );
   }
 
-  const deck = filterDeck(products, filter.category);
+  const deck = filterDeck(products, researchSourceIds, filter.category);
 
   return (
     <main className="flex flex-1 flex-col px-4 pt-safe pb-4">
@@ -40,9 +49,14 @@ export default function Home() {
   );
 }
 
-function filterDeck(products: Product[], category: string): Product[] {
+function filterDeck(
+  products: Product[],
+  researchSourceIds: Set<string>,
+  category: string,
+): Product[] {
   return products
     .filter((p) => p.status === "new")
+    .filter((p) => !p.sourceId || !researchSourceIds.has(p.sourceId))
     .filter((p) => category === "all" || p.category === category)
     .sort(
       (a, b) =>
