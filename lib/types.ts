@@ -48,6 +48,8 @@ export interface Source {
   dateAdded: string;
   lastIngestAt?: string;
   lastIngestCount?: number;
+  /** User who originally onboarded this source. Null if their account was deleted. */
+  addedBy?: string;
 }
 
 export interface Folder {

@@ -51,6 +51,7 @@ function SourceRow({ source }: { source: Source }) {
   const remove = useStore((s) => s.removeSource);
   const update = useStore((s) => s.updateSource);
   const addIngestedProducts = useStore((s) => s.addIngestedProducts);
+  const userId = useStore((s) => s.userId);
 
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(source.notes ?? "");
@@ -61,6 +62,10 @@ function SourceRow({ source }: { source: Source }) {
 
   const canIngest = source.platform === "shopify" && !!source.feedUrl;
   const windowDays = source.freshnessWindowDays ?? 30;
+  // Only the user who originally onboarded this source can edit/delete it.
+  // Sources with a null addedBy (creator deleted) are immutable until an
+  // admin cleans them up. Pulling is allowed for any authenticated user.
+  const isOwner = !!userId && source.addedBy === userId;
 
   const handleDelete = () => {
     if (confirm(`Remove "${source.name}" from sources?`)) remove(source.id);
@@ -166,6 +171,10 @@ function SourceRow({ source }: { source: Source }) {
             </p>
           )}
 
+          <p className="mt-0.5 text-[10px] uppercase tracking-wide text-muted-2">
+            {isOwner ? "Added by you" : source.addedBy ? "Added by teammate" : "Shared"}
+          </p>
+
           {pullResult && (
             <p
               className={`mt-1.5 rounded-md px-2 py-1 text-xs ${
@@ -183,7 +192,7 @@ function SourceRow({ source }: { source: Source }) {
               {source.notes}
             </p>
           )}
-          {editingNotes && (
+          {editingNotes && isOwner && (
             <div className="mt-1.5 flex items-start gap-1.5">
               <input
                 value={notes}
@@ -203,16 +212,28 @@ function SourceRow({ source }: { source: Source }) {
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <button
-              onClick={() => toggle(source.id)}
-              className={`rounded-full border px-2.5 py-0.5 font-medium ${
-                source.active
-                  ? "border-save/30 bg-save/10 text-save"
-                  : "border-border bg-background text-muted"
-              }`}
-            >
-              {source.active ? "Active" : "Inactive"}
-            </button>
+            {isOwner ? (
+              <button
+                onClick={() => toggle(source.id)}
+                className={`rounded-full border px-2.5 py-0.5 font-medium ${
+                  source.active
+                    ? "border-save/30 bg-save/10 text-save"
+                    : "border-border bg-background text-muted"
+                }`}
+              >
+                {source.active ? "Active" : "Inactive"}
+              </button>
+            ) : (
+              <span
+                className={`rounded-full border px-2.5 py-0.5 font-medium ${
+                  source.active
+                    ? "border-save/30 bg-save/10 text-save"
+                    : "border-border bg-background text-muted"
+                }`}
+              >
+                {source.active ? "Active" : "Inactive"}
+              </span>
+            )}
             {canIngest && (
               <button
                 onClick={handlePull}
@@ -232,7 +253,7 @@ function SourceRow({ source }: { source: Source }) {
                 )}
               </button>
             )}
-            {!editingWindow ? (
+            {isOwner && !editingWindow && (
               <button
                 onClick={() => {
                   setWindowDraft(windowDays);
@@ -243,7 +264,8 @@ function SourceRow({ source }: { source: Source }) {
                 <Calendar className="h-3 w-3" />
                 {windowDays}d window
               </button>
-            ) : (
+            )}
+            {isOwner && editingWindow && (
               <span className="flex items-center gap-1 rounded-full border border-accent bg-card px-2 py-0.5">
                 <Calendar className="h-3 w-3 text-muted" />
                 <input
@@ -271,19 +293,29 @@ function SourceRow({ source }: { source: Source }) {
                 </button>
               </span>
             )}
-            <button
-              onClick={() => setEditingNotes((o) => !o)}
-              className="text-muted hover:text-foreground"
-            >
-              {source.notes ? "Edit note" : "Add note"}
-            </button>
-            <button
-              onClick={handleDelete}
-              aria-label="Remove source"
-              className="ml-auto flex h-7 w-7 items-center justify-center rounded-full text-skip hover:bg-background"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            {!isOwner && (
+              <span className="flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-0.5 font-medium text-muted">
+                <Calendar className="h-3 w-3" />
+                {windowDays}d window
+              </span>
+            )}
+            {isOwner && (
+              <button
+                onClick={() => setEditingNotes((o) => !o)}
+                className="text-muted hover:text-foreground"
+              >
+                {source.notes ? "Edit note" : "Add note"}
+              </button>
+            )}
+            {isOwner && (
+              <button
+                onClick={handleDelete}
+                aria-label="Remove source"
+                className="ml-auto flex h-7 w-7 items-center justify-center rounded-full text-skip hover:bg-background"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>

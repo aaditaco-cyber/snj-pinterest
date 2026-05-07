@@ -24,11 +24,12 @@ import type {
   SourceUpdate,
   SwipeActionInsert,
   SwipeActionRow,
+  UserProductStateRow,
 } from "./database.types";
 
 // ─── snake_case ↔ camelCase mappers ────────────────────────────────────────
 
-function productFromRow(r: ProductRow): Product {
+function productFromRow(r: ProductRow, status: ProductStatus = "new"): Product {
   return {
     id: r.id,
     sourceId: r.source_id ?? undefined,
@@ -44,7 +45,7 @@ function productFromRow(r: ProductRow): Product {
     caratWeight: r.carat_weight ?? undefined,
     stoneType: r.stone_type ?? undefined,
     sourceUrl: r.source_url ?? undefined,
-    status: r.status,
+    status,
     dateDiscovered: r.date_discovered,
   };
 }
@@ -63,6 +64,7 @@ function sourceFromRow(r: SourceRow): Source {
     dateAdded: r.date_added,
     lastIngestAt: r.last_ingest_at ?? undefined,
     lastIngestCount: r.last_ingest_count ?? undefined,
+    addedBy: r.added_by ?? undefined,
   };
 }
 
@@ -110,7 +112,11 @@ export interface InitialData {
   userEmail: string | null;
 }
 
-/** Fetch everything for the current authenticated user. */
+/**
+ * Fetch everything for the current authenticated user. Sources and products
+ * are shared across all users; folders, folder_items, swipe_actions, and
+ * user_product_states are per-user (RLS enforces).
+ */
 export async function fetchAll(): Promise<InitialData> {
   const supabase = getSupabaseBrowser();
   const {
@@ -119,7 +125,7 @@ export async function fetchAll(): Promise<InitialData> {
   } = await supabase.auth.getUser();
   if (userErr || !user) throw new Error("Not authenticated");
 
-  const [productsRes, sourcesRes, foldersRes, folderItemsRes, swipesRes] =
+  const [productsRes, sourcesRes, foldersRes, folderItemsRes, swipesRes, statesRes] =
     await Promise.all([
       supabase.from("products").select("*").order("date_discovered", { ascending: false }),
       supabase.from("sources").select("*").order("name", { ascending: true }),
@@ -130,14 +136,29 @@ export async function fetchAll(): Promise<InitialData> {
         .select("*")
         .order("timestamp", { ascending: false })
         .limit(50),
+      supabase.from("user_product_states").select("*"),
     ]);
 
-  for (const res of [productsRes, sourcesRes, foldersRes, folderItemsRes, swipesRes]) {
+  for (const res of [
+    productsRes,
+    sourcesRes,
+    foldersRes,
+    folderItemsRes,
+    swipesRes,
+    statesRes,
+  ]) {
     if (res.error) throw res.error;
   }
 
+  const stateByProduct = new Map<string, ProductStatus>();
+  for (const row of (statesRes.data ?? []) as UserProductStateRow[]) {
+    stateByProduct.set(row.product_id, row.status);
+  }
+
   return {
-    products: (productsRes.data ?? []).map(productFromRow),
+    products: (productsRes.data ?? []).map((r) =>
+      productFromRow(r, stateByProduct.get(r.id) ?? "new"),
+    ),
     sources: (sourcesRes.data ?? []).map(sourceFromRow),
     folders: (foldersRes.data ?? []).map(folderFromRow),
     folderItems: (folderItemsRes.data ?? []).map(folderItemFromRow),
@@ -150,11 +171,30 @@ export async function fetchAll(): Promise<InitialData> {
 // ─── Products ───────────────────────────────────────────────────────────────
 
 export async function updateProductStatus(
-  id: string,
+  userId: string,
+  productId: string,
   status: ProductStatus,
 ): Promise<void> {
   const supabase = getSupabaseBrowser();
-  const { error } = await supabase.from("products").update({ status }).eq("id", id);
+  if (status === "new") {
+    // Absence of a row = "new"; clear any existing state.
+    const { error } = await supabase
+      .from("user_product_states")
+      .delete()
+      .eq("user_id", userId)
+      .eq("product_id", productId);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await supabase.from("user_product_states").upsert(
+    {
+      user_id: userId,
+      product_id: productId,
+      status,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,product_id" },
+  );
   if (error) throw error;
 }
 
@@ -167,15 +207,12 @@ export async function deleteProduct(id: string): Promise<void> {
 export async function ingestProducts(
   sourceId: string,
   retailer: string,
-  userId: string,
   incoming: IngestProduct[],
 ): Promise<{ added: Product[]; skipped: number }> {
   if (incoming.length === 0) return { added: [], skipped: 0 };
   const supabase = getSupabaseBrowser();
 
-  // Find which productUrls already exist for this user — we dedupe client-side
-  // because Postgres ON CONFLICT requires a returning clause that's awkward
-  // with our schema, and unique(user_id, product_url) only enforces.
+  // Find which productUrls already exist globally — products are shared.
   const incomingUrls = incoming.map((p) => p.productUrl).filter(Boolean);
   const { data: existing, error: existingErr } = await supabase
     .from("products")
@@ -191,7 +228,6 @@ export async function ingestProducts(
   if (fresh.length === 0) return { added: [], skipped };
 
   const rows: ProductInsert[] = fresh.map((p) => ({
-    user_id: userId,
     source_id: sourceId,
     title: p.title,
     image_url: p.imageUrl || null,
@@ -205,7 +241,6 @@ export async function ingestProducts(
     carat_weight: p.caratWeight ?? null,
     stone_type: p.stoneType ?? null,
     source_url: p.sourceUrl ?? null,
-    status: "new",
   }));
 
   const { data: inserted, error: insertErr } = await supabase
@@ -220,7 +255,7 @@ export async function ingestProducts(
     .update({ last_ingest_at: now, last_ingest_count: rows.length })
     .eq("id", sourceId);
 
-  return { added: (inserted ?? []).map(productFromRow), skipped };
+  return { added: (inserted ?? []).map((r) => productFromRow(r)), skipped };
 }
 
 // ─── Sources ────────────────────────────────────────────────────────────────
@@ -238,7 +273,7 @@ export async function addSourceRow(
   },
 ): Promise<Source> {
   const row: SourceInsert = {
-    user_id: userId,
+    added_by: userId,
     name: input.name,
     url: input.url,
     feed_url: input.feedUrl ?? null,
@@ -420,20 +455,21 @@ export async function deleteRecentSwipe(productId: string): Promise<void> {
 
 // ─── Reset ──────────────────────────────────────────────────────────────────
 
+/**
+ * Resets only the calling user's per-user data (folders, folder_items,
+ * swipe_actions, user_product_states). Shared sources and products are NOT
+ * affected — to wipe those, re-run supabase/schema.sql.
+ */
 export async function resetAllData(userId: string): Promise<void> {
   const supabase = getSupabaseBrowser();
-  // Order matters: folder_items references folders & products, swipe_actions
-  // references products. Foreign keys cascade on delete, so deleting products
-  // and folders alone clears the dependent rows.
+  // folder_items and swipe_actions cascade from folders/products, but we
+  // explicitly clear them so a user with no folders still gets wiped.
   await Promise.all([
     supabase.from("folder_items").delete().eq("user_id", userId),
     supabase.from("swipe_actions").delete().eq("user_id", userId),
+    supabase.from("user_product_states").delete().eq("user_id", userId),
   ]);
-  await Promise.all([
-    supabase.from("products").delete().eq("user_id", userId),
-    supabase.from("folders").delete().eq("user_id", userId),
-    supabase.from("sources").delete().eq("user_id", userId),
-  ]);
+  await supabase.from("folders").delete().eq("user_id", userId);
 }
 
 export async function signOut(): Promise<void> {

@@ -15,16 +15,22 @@ export type Database = {
         Update: SourceUpdate;
         Relationships: [];
       };
-      folders: {
-        Row: FolderRow;
-        Insert: FolderInsert;
-        Update: FolderUpdate;
-        Relationships: [];
-      };
       products: {
         Row: ProductRow;
         Insert: ProductInsert;
         Update: ProductUpdate;
+        Relationships: [];
+      };
+      user_product_states: {
+        Row: UserProductStateRow;
+        Insert: UserProductStateInsert;
+        Update: Partial<UserProductStateInsert>;
+        Relationships: [];
+      };
+      folders: {
+        Row: FolderRow;
+        Insert: FolderInsert;
+        Update: FolderUpdate;
         Relationships: [];
       };
       folder_items: {
@@ -49,7 +55,7 @@ export type Database = {
 
 export type SourceRow = {
   id: string;
-  user_id: string;
+  added_by: string | null;
   name: string;
   url: string;
   feed_url: string | null;
@@ -64,7 +70,7 @@ export type SourceRow = {
 };
 export type SourceInsert = {
   id?: string;
-  user_id: string;
+  added_by: string;
   name: string;
   url: string;
   feed_url?: string | null;
@@ -78,6 +84,55 @@ export type SourceInsert = {
   last_ingest_count?: number | null;
 };
 export type SourceUpdate = Partial<SourceInsert>;
+
+export type ProductRow = {
+  id: string;
+  source_id: string | null;
+  title: string;
+  image_url: string | null;
+  additional_images: string[];
+  product_url: string;
+  retailer: string | null;
+  price: number | null;
+  price_display: string | null;
+  category: string | null;
+  metal_type: string | null;
+  carat_weight: string | null;
+  stone_type: string | null;
+  source_url: string | null;
+  date_discovered: string;
+};
+export type ProductInsert = {
+  id?: string;
+  source_id?: string | null;
+  title: string;
+  image_url?: string | null;
+  additional_images?: string[];
+  product_url: string;
+  retailer?: string | null;
+  price?: number | null;
+  price_display?: string | null;
+  category?: string | null;
+  metal_type?: string | null;
+  carat_weight?: string | null;
+  stone_type?: string | null;
+  source_url?: string | null;
+  date_discovered?: string;
+};
+export type ProductUpdate = Partial<ProductInsert>;
+
+export type UserProductStateRow = {
+  user_id: string;
+  product_id: string;
+  status: "skipped" | "saved" | "archived";
+  updated_at: string;
+};
+export type UserProductStateInsert = {
+  user_id: string;
+  product_id: string;
+  status: "skipped" | "saved" | "archived";
+  updated_at?: string;
+};
 
 export type FolderRow = {
   id: string;
@@ -100,46 +155,6 @@ export type FolderInsert = {
   date_created?: string;
 };
 export type FolderUpdate = Partial<FolderInsert>;
-
-export type ProductRow = {
-  id: string;
-  user_id: string;
-  source_id: string | null;
-  title: string;
-  image_url: string | null;
-  additional_images: string[];
-  product_url: string;
-  retailer: string | null;
-  price: number | null;
-  price_display: string | null;
-  category: string | null;
-  metal_type: string | null;
-  carat_weight: string | null;
-  stone_type: string | null;
-  source_url: string | null;
-  status: "new" | "skipped" | "saved" | "archived";
-  date_discovered: string;
-};
-export type ProductInsert = {
-  id?: string;
-  user_id: string;
-  source_id?: string | null;
-  title: string;
-  image_url?: string | null;
-  additional_images?: string[];
-  product_url: string;
-  retailer?: string | null;
-  price?: number | null;
-  price_display?: string | null;
-  category?: string | null;
-  metal_type?: string | null;
-  carat_weight?: string | null;
-  stone_type?: string | null;
-  source_url?: string | null;
-  status?: "new" | "skipped" | "saved" | "archived";
-  date_discovered?: string;
-};
-export type ProductUpdate = Partial<ProductInsert>;
 
 export type FolderItemRow = {
   id: string;

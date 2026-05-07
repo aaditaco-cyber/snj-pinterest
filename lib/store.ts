@@ -160,7 +160,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }));
     try {
       await Promise.all([
-        repo.updateProductStatus(productId, "skipped"),
+        repo.updateProductStatus(userId, productId, "skipped"),
         repo.recordSwipe(userId, productId, "skip"),
       ]);
     } catch (e) {
@@ -185,7 +185,7 @@ export const useStore = create<StoreState>()((set, get) => ({
     }));
     try {
       await Promise.all([
-        repo.updateProductStatus(productId, "saved"),
+        repo.updateProductStatus(userId, productId, "saved"),
         repo.recordSwipe(userId, productId, "save"),
       ]);
     } catch (e) {
@@ -194,6 +194,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   },
 
   undoLastSwipe: async () => {
+    const userId = get().userId;
+    if (!userId) return;
     const last = get().recentSwipes[0];
     if (!last) return;
     set((s) => ({
@@ -213,30 +215,31 @@ export const useStore = create<StoreState>()((set, get) => ({
       recentSwipes: s.recentSwipes.slice(1),
     }));
     try {
-      await repo.updateProductStatus(last.productId, "new");
+      await repo.updateProductStatus(userId, last.productId, "new");
       await repo.deleteRecentSwipe(last.productId);
-      // Folder items deleted server-side via cascade-on-product update? No, we
-      // still need to drop them. We let local-only changes for now; the cron
-      // pull won't recreate folder items.
     } catch (e) {
       console.error("undoLastSwipe failed:", e);
     }
   },
 
   restoreSkippedProduct: async (productId) => {
+    const userId = get().userId;
+    if (!userId) return;
     set((s) => ({
       products: s.products.map((p) =>
         p.id === productId && p.status === "skipped" ? { ...p, status: "new" } : p,
       ),
     }));
     try {
-      await repo.updateProductStatus(productId, "new");
+      await repo.updateProductStatus(userId, productId, "new");
     } catch (e) {
       console.error("restoreSkippedProduct failed:", e);
     }
   },
 
   restoreAllSkipped: async () => {
+    const userId = get().userId;
+    if (!userId) return;
     const skippedIds = get()
       .products.filter((p) => p.status === "skipped")
       .map((p) => p.id);
@@ -246,7 +249,9 @@ export const useStore = create<StoreState>()((set, get) => ({
       ),
     }));
     try {
-      await Promise.all(skippedIds.map((id) => repo.updateProductStatus(id, "new")));
+      await Promise.all(
+        skippedIds.map((id) => repo.updateProductStatus(userId, id, "new")),
+      );
     } catch (e) {
       console.error("restoreAllSkipped failed:", e);
     }
@@ -428,10 +433,8 @@ export const useStore = create<StoreState>()((set, get) => ({
   // ─── Ingestion ────────────────────────────────────────────────────────────
 
   addIngestedProducts: async (sourceId, retailer, incoming) => {
-    const userId = get().userId;
-    if (!userId) return { added: 0, skipped: incoming.length };
     try {
-      const result = await repo.ingestProducts(sourceId, retailer, userId, incoming);
+      const result = await repo.ingestProducts(sourceId, retailer, incoming);
       set((s) => ({
         products: [...s.products, ...result.added],
         sources: s.sources.map((src) =>
@@ -458,17 +461,17 @@ export const useStore = create<StoreState>()((set, get) => ({
     if (!userId) return;
     try {
       await repo.resetAllData(userId);
-      // Re-hydrate from server (folders trigger re-creates the 10 default
-      // folders on next signup, but a manual reset doesn't trigger that —
-      // user keeps an empty workspace).
-      set({
-        products: [],
-        sources: [],
+      // Reset only clears this user's per-user data (folders, swipes,
+      // saved/skipped state). Shared sources and products stay intact —
+      // products reappear with status "new" since user_product_states is
+      // wiped.
+      set((s) => ({
+        products: s.products.map((p) => ({ ...p, status: "new" })),
         folders: [],
         folderItems: [],
         recentSwipes: [],
         filter: defaultFilter,
-      });
+      }));
     } catch (e) {
       console.error("resetAll failed:", e);
     }

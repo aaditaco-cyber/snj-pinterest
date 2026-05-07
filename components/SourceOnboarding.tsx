@@ -61,8 +61,12 @@ export function SourceOnboarding() {
     }
   };
 
+  const [saving, setSaving] = useState(false);
+
   const saveAndIngest = async () => {
     if (!detection?.ok) return;
+    setSaving(true);
+    setError(null);
     const effectiveWindow = detection.windowDays;
     const sourceId = await addSource({
       name: name.trim(),
@@ -73,7 +77,16 @@ export function SourceOnboarding() {
       category: category || undefined,
       notes: notes.trim() || undefined,
     });
-    if (sourceId && detection.inWindowCount > 0) {
+    if (!sourceId) {
+      setSaving(false);
+      // Most likely the URL is already onboarded (sources.url is unique).
+      setError(
+        "Couldn't add this source — it may already exist, or there was a database error. Check the browser console for details.",
+      );
+      setStep("fallback");
+      return;
+    }
+    if (detection.inWindowCount > 0) {
       try {
         const res = await fetch("/api/ingest-source", {
           method: "POST",
@@ -96,6 +109,7 @@ export function SourceOnboarding() {
         await addIngestedProducts(sourceId, name.trim(), detection.samples);
       }
     }
+    setSaving(false);
     close();
   };
 
@@ -156,6 +170,7 @@ export function SourceOnboarding() {
         {step === "preview" && detection?.ok && (
           <PreviewStep
             detection={detection}
+            saving={saving}
             onConfirm={saveAndIngest}
             onChangeWindow={(d) => {
               setWindowDays(d);
@@ -338,11 +353,13 @@ function DetectingStep({ url }: { url: string }) {
 
 function PreviewStep({
   detection,
+  saving,
   onConfirm,
   onChangeWindow,
   onTryAgain,
 }: {
   detection: Extract<DetectionResult, { ok: true }>;
+  saving: boolean;
   onConfirm: () => void;
   onChangeWindow: (days: number) => void;
   onTryAgain: () => void;
@@ -435,16 +452,22 @@ function PreviewStep({
       <div className="mt-4 flex justify-end gap-2">
         <button
           onClick={onTryAgain}
-          className="rounded-full border border-border bg-card px-4 py-1.5 text-sm font-medium"
+          disabled={saving}
+          className="rounded-full border border-border bg-card px-4 py-1.5 text-sm font-medium disabled:opacity-40"
         >
           Try a different URL
         </button>
         <button
           onClick={onConfirm}
-          disabled={noneInWindow}
-          className="rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background disabled:opacity-40"
+          disabled={noneInWindow || saving}
+          className="flex items-center gap-1.5 rounded-full bg-foreground px-4 py-1.5 text-sm font-medium text-background disabled:opacity-40"
         >
-          {noneInWindow ? "Save without products" : "Add and pull"}
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          {saving
+            ? "Adding…"
+            : noneInWindow
+              ? "Save without products"
+              : "Add and pull"}
         </button>
       </div>
     </div>

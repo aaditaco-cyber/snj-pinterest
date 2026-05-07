@@ -1,6 +1,8 @@
 /**
- * Service-role data access for the cron route. Bypasses RLS and operates
- * across all users. NEVER import from a Client Component.
+ * Service-role data access for the cron route. Bypasses RLS.
+ * Sources and products are shared globally, so cron pulls each active source
+ * once and writes products into the shared pool — no per-user fan-out.
+ * NEVER import from a Client Component.
  */
 
 import { ingestShopify } from "../ingest/shopify";
@@ -18,8 +20,8 @@ export interface CronSourceResult {
 }
 
 /**
- * Pull every active Shopify source for every user, dedupe, insert new
- * products. Returns per-source results for telemetry.
+ * Pull every active Shopify source, dedupe globally, insert new products.
+ * Returns per-source results for telemetry.
  */
 export async function pullAllActiveSources(): Promise<CronSourceResult[]> {
   const supabase = getSupabaseService();
@@ -67,7 +69,6 @@ async function pullOneSource(source: SourceRow): Promise<CronSourceResult> {
       .map((p) => ({
         productUrl: p.productUrl,
         insert: {
-          user_id: source.user_id,
           source_id: source.id,
           title: p.title,
           image_url: p.imageUrl || null,
@@ -81,7 +82,6 @@ async function pullOneSource(source: SourceRow): Promise<CronSourceResult> {
           carat_weight: p.caratWeight ?? null,
           stone_type: p.stoneType ?? null,
           source_url: p.sourceUrl ?? null,
-          status: "new",
         } satisfies ProductInsert,
       }));
   } catch (e) {
@@ -107,12 +107,11 @@ async function pullOneSource(source: SourceRow): Promise<CronSourceResult> {
     };
   }
 
-  // Dedupe — only inserts that don't already exist for this user.
+  // Dedupe globally — products are shared across all users.
   const urls = inWindow.map((x) => x.productUrl);
   const { data: existing, error: dedupeErr } = await supabase
     .from("products")
     .select("product_url")
-    .eq("user_id", source.user_id)
     .in("product_url", urls);
   if (dedupeErr) throw dedupeErr;
   const existingSet = new Set((existing ?? []).map((r) => r.product_url));
