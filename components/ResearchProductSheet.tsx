@@ -113,6 +113,9 @@ export function ResearchProductSheet({
                       </span>
                     )}
                   </div>
+                  {product.caratWeight && (
+                    <CaratOptions value={product.caratWeight} />
+                  )}
                   <a
                     href={product.productUrl}
                     target="_blank"
@@ -155,6 +158,36 @@ export function ResearchProductSheet({
         </>
       )}
     </AnimatePresence>
+  );
+}
+
+/**
+ * Render the carat-weight string as one chip per option. The bookmarklet
+ * stores either a single value ("2 ctw") or a comma-separated list when the
+ * card surfaces variant options ("0.5 ct, 1 ct, 2 ctw"). We just split.
+ */
+function CaratOptions({ value }: { value: string }) {
+  const parts = value
+    .split(/,\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  return (
+    <div className="mt-2">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-muted-2">
+        Carat {parts.length > 1 ? "options" : "weight"}
+      </p>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {parts.map((p) => (
+          <span
+            key={p}
+            className="rounded-full bg-foreground/[0.08] px-2 py-0.5 text-[11px] font-medium text-foreground"
+          >
+            {p}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

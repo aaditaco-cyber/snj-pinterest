@@ -353,6 +353,7 @@ function ldProductToIngest(
   const images = collectImages(node.image);
   const { price, priceDisplay } = ldPickPrice(node.offers);
   const category = inferCategory(title, node.category);
+  const caratWeight = caratFromTitle(title) ?? undefined;
 
   return {
     title,
@@ -363,8 +364,20 @@ function ldProductToIngest(
     price,
     priceDisplay,
     category,
+    caratWeight,
     sourceUrl: undefined,
   };
+}
+
+/**
+ * Pull the first carat-like token out of a product title.
+ * Examples that match: "2 ctw", "1.5 ct", "3/4 carat".
+ */
+function caratFromTitle(title: string): string | null {
+  const re = /\b(\d+(?:[./]\d+)?)\s*(?:cttw|ctw|ct|carats?)\b/i;
+  const m = title.match(re);
+  if (!m) return null;
+  return `${m[1]} ${/cttw|ctw/i.test(m[0]) ? "ctw" : "ct"}`;
 }
 
 function collectImages(

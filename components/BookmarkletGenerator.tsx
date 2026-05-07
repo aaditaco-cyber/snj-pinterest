@@ -473,7 +473,30 @@ anchorImgs.forEach(function(imgList,a){
   }
   var priceN=priceText?parseFloat(priceText.replace(/[^0-9.]/g,'')):NaN;
   if(!isFinite(priceN)||priceN<=0)return;
-  domProducts.push({title:title,productUrl:href,imageUrl:bestSrc,price:priceN,priceDisplay:priceText});
+  // Carat weight: capture from title first (always the displayed/primary
+  // value), then sweep up 2 ancestors looking for option-chips like
+  // [0.5ct][1ct][2ct]. Joined with commas to keep both single and multi-
+  // option cases in one string field.
+  var caratRe=/\\b(\\d+(?:[\\.\\/]\\d+)?)\\s*(?:cttw|ctw|ct|carat)s?\\b/gi;
+  var caratList=[];var caratSeen={};
+  function pushCarat(raw){
+    if(!raw)return;
+    var n=raw.toLowerCase().replace(/\\s+/g,' ').trim().replace(/carats?/,'ct');
+    n=n.replace(/cttw|ctw/,'ctw').replace(/(\\d)ct/,'$1 ct');
+    if(caratSeen[n])return;
+    caratSeen[n]=1;caratList.push(n);
+  }
+  var titleCaratMatches=title.match(caratRe);
+  if(titleCaratMatches){for(var ti=0;ti<titleCaratMatches.length;ti++)pushCarat(titleCaratMatches[ti]);}
+  var pNode=a.parentElement;
+  for(var ci=0;ci<2&&pNode;ci++,pNode=pNode.parentElement){
+    var ptxt=(pNode.textContent||'').replace(/\\s+/g,' ');
+    var ms=ptxt.match(caratRe);
+    if(!ms)continue;
+    for(var mi=0;mi<ms.length;mi++)pushCarat(ms[mi]);
+  }
+  var caratWeight=caratList.length>0?caratList.join(', '):null;
+  domProducts.push({title:title,productUrl:href,imageUrl:bestSrc,price:priceN,priceDisplay:priceText,caratWeight:caratWeight});
 });
 console.log('[SNJ] dom products:',domProducts.length);
 var r=await fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:${JSON.stringify(token)},sourceId:${JSON.stringify(sourceId)},url:location.href,title:document.title,ldBlocks:parsed,og:og,domProducts:domProducts})});

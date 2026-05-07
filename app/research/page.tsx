@@ -459,11 +459,16 @@ function Card({
           <p className="line-clamp-2 text-xs font-medium leading-snug">
             {product.title}
           </p>
-          {product.priceDisplay && (
-            <p className="mt-0.5 text-xs font-semibold">
-              {product.priceDisplay}
-            </p>
-          )}
+          <div className="mt-0.5 flex items-center justify-between gap-1">
+            {product.priceDisplay ? (
+              <p className="text-xs font-semibold">{product.priceDisplay}</p>
+            ) : (
+              <span />
+            )}
+            {product.caratWeight && (
+              <CaratBadge value={product.caratWeight} />
+            )}
+          </div>
         </div>
       </button>
       {/*
@@ -483,6 +488,28 @@ function Card({
         <X className="h-3 w-3" />
       </button>
     </li>
+  );
+}
+
+/**
+ * If the product has multiple carat options (comma-separated string), the
+ * card just shows a "+N" hint after the first value. The sheet shows them
+ * all as chips. Single-option carats render as a plain badge.
+ */
+function CaratBadge({ value }: { value: string }) {
+  const parts = value
+    .split(/,\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const first = parts[0];
+  const extra = parts.length - 1;
+  return (
+    <span className="rounded-full bg-foreground/[0.08] px-1.5 py-0.5 text-[10px] font-medium text-muted">
+      {first}
+      {extra > 0 && (
+        <span className="ml-0.5 text-muted-2">+{extra}</span>
+      )}
+    </span>
   );
 }
 

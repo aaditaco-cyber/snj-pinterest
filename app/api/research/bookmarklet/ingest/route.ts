@@ -43,6 +43,7 @@ interface DomProduct {
   imageUrl: string;
   price: number | null;
   priceDisplay: string | null;
+  caratWeight: string | null;
 }
 
 export async function POST(req: Request) {
@@ -131,6 +132,7 @@ export async function POST(req: Request) {
         price: typeof p.price === "number" && p.price > 0 ? p.price : undefined,
         priceDisplay: p.priceDisplay ?? undefined,
         category: inferCategory(p.title),
+        caratWeight: p.caratWeight ?? undefined,
       }));
   }
 
