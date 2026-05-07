@@ -360,38 +360,65 @@ function bookmarkletBody({
   // path benefits too if the user has the console open.
   return `(async()=>{try{
 console.log('[SNJ] bookmarklet running…');
+// Auto-scroll the page so lazy-loaded product images render before we scrape.
+var totalH=document.documentElement.scrollHeight;
+var step=Math.max(window.innerHeight,400);
+for(var sy=0;sy<totalH;sy+=step){window.scrollTo(0,sy);await new Promise(function(r){setTimeout(r,120);});}
+window.scrollTo(0,0);await new Promise(function(r){setTimeout(r,200);});
+console.log('[SNJ] scrolled to load lazy images');
 var blocks=Array.prototype.map.call(document.querySelectorAll('script[type="application/ld+json"]'),function(s){return s.textContent;}).filter(Boolean);
 var parsed=[];for(var i=0;i<blocks.length;i++){try{parsed.push(JSON.parse(blocks[i]));}catch(_){}}
 console.log('[SNJ] ld+json blocks parsed:',parsed.length,parsed);
 var og={};Array.prototype.forEach.call(document.querySelectorAll('meta'),function(m){var k=m.getAttribute('property')||m.getAttribute('name');var v=m.getAttribute('content');if(k&&v&&(k.indexOf('og:')===0||k.indexOf('product:')===0||k.indexOf('twitter:')===0))og[k]=v;});
 console.log('[SNJ] og keys:',Object.keys(og).length);
-// DOM-fallback extraction: any site that renders product cards in its DOM
-// (which most do, even Cloudflare-protected ones, in the user's tab) gets
-// scraped here. Heuristic: <a> whose href looks like a product detail URL,
-// containing an <img>, with a price string somewhere up the DOM tree.
+// DOM extraction: every <img> with non-trivial alt text inside an <a>. We
+// avoid URL-pattern heuristics (sites use /products/, /jewelry/, /p/, plain
+// slug, etc.) and instead filter out obvious non-product links by URL.
+var SKIP_PATH=/\\b(?:cart|checkout|account|signin|login|signup|register|search|wishlist|compare|about|contact|press|blog|stories|gallery|policy|terms|faq|help|support|careers|home)\\b/i;
+function pickImgSrc(img){
+  var src=img.currentSrc||img.src||img.getAttribute('data-src')||img.getAttribute('data-lazy-src')||img.getAttribute('data-original');
+  if(!src&&img.srcset){var first=img.srcset.split(',')[0].trim().split(' ')[0];if(first)src=first;}
+  if(src&&src.indexOf('data:')===0)return '';
+  return src||'';
+}
 var domProducts=[];
 var seen={};
-var links=document.querySelectorAll('a[href]');
-for(var li=0;li<links.length;li++){
-  var a=links[li];
+var imgs=document.querySelectorAll('a img');
+for(var ii=0;ii<imgs.length;ii++){
+  var img=imgs[ii];
+  var src=pickImgSrc(img);
+  if(!src)continue;
+  // Skip tiny images (icons, sprites). naturalWidth is 0 for un-loaded imgs;
+  // fall back to width attr or computed width.
+  var w=img.naturalWidth||img.width||parseInt(img.getAttribute('width')||'0',10);
+  var h=img.naturalHeight||img.height||parseInt(img.getAttribute('height')||'0',10);
+  if(w&&w<80)continue;
+  if(h&&h<80)continue;
+  var a=img.closest('a');
+  if(!a||!a.href)continue;
   var href=a.href;
-  if(!href||seen[href])continue;
-  if(!/\\/products?\\/|\\/p\\/|\\/item\\/|\\/sku\\//i.test(href))continue;
-  var img=a.querySelector('img');
-  if(!img||!img.src||img.src.indexOf('data:')===0)continue;
-  seen[href]=1;
-  var title=img.alt||(a.textContent||'').trim();
+  if(seen[href])continue;
+  if(href.indexOf(location.origin)!==0&&href.indexOf('http')===0)continue; // off-site links
+  if(/^(?:mailto|tel|javascript):/i.test(href))continue;
+  if(/\\.(?:jpg|jpeg|png|gif|svg|webp)(?:\\?|$)/i.test(href))continue;
+  try{var u=new URL(href);if(SKIP_PATH.test(u.pathname))continue;}catch(_){}
+  // Title: prefer img alt, else closest heading, else link text.
+  var title=(img.alt||'').trim();
+  if(!title){var h2=a.querySelector('h1,h2,h3,h4');if(h2)title=(h2.textContent||'').trim();}
+  if(!title)title=(a.textContent||'').trim().replace(/\\s+/g,' ');
   if(title.length>200)title=title.substring(0,200);
-  if(!title)continue;
+  if(!title||title.length<3)continue;
+  // Price: walk up to 6 ancestors looking for a $-prefixed number.
   var priceText='';var cur=a;
-  for(var pi=0;pi<5&&cur;pi++){
+  for(var pi=0;pi<6&&cur;pi++){
     var t=cur.textContent||'';
     var pm=t.match(/\\$[\\d,]+(?:\\.[0-9]{2})?/);
     if(pm){priceText=pm[0];break;}
     cur=cur.parentElement;
   }
   var priceN=priceText?parseFloat(priceText.replace(/[^0-9.]/g,'')):NaN;
-  domProducts.push({title:title,productUrl:href,imageUrl:img.src,price:isFinite(priceN)?priceN:null,priceDisplay:priceText||null});
+  seen[href]=1;
+  domProducts.push({title:title,productUrl:href,imageUrl:src,price:isFinite(priceN)?priceN:null,priceDisplay:priceText||null});
 }
 console.log('[SNJ] dom products:',domProducts.length);
 var r=await fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:${JSON.stringify(token)},sourceId:${JSON.stringify(sourceId)},url:location.href,title:document.title,ldBlocks:parsed,og:og,domProducts:domProducts})});
