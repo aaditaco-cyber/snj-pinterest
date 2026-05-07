@@ -376,11 +376,11 @@ console.log('[SNJ] og keys:',Object.keys(og).length);
 // obvious non-product paths and price-less category cards.
 var SKIP_PATH=/\\b(?:cart|checkout|account|signin|login|signup|register|search|wishlist|compare|about|contact|press|blog|stories|gallery|policy|terms|faq|help|support|careers|home)\\b/i;
 // URL hints — substrings in image URLs that imply shot type.
-var BAD_IMG=/(?:_model|_lifestyle|_wearing|_on-hand|_on-body|_worn|_back|_secondary|_alt|_hover|_swap|_two|_2x|_v2|_hand|_finger|_neck|_ear|_context|_scale|_human|_video|_zoom)/i;
-var GOOD_IMG=/(?:_main|_front|_default|_pdp|_primary|_hero|_one|_01|_v1|_flat|_white|_silo)/i;
+var BAD_IMG=/(?:_model|_lifestyle|_wearing|_on-hand|_on-body|_worn|_secondary|_alt|_hover|_swap|_two|_2x|_v2|_hand|_finger|_neck|_ear|_context|_scale|_human|_video|_zoom|-new\\.(?:jpg|jpeg|png|webp))/i;
+var GOOD_IMG=/(?:_main|_front|_default|_pdp|_primary|_hero|_one|_01|_v1|_flat|_white|_silo|-RB-WH-|-WH-)/i;
 // Class hints — class-name keywords commonly used by storefront themes.
-var BAD_CLS=/\\b(?:secondary|hover|alt|back|second|swap|two|gallery-secondary|alternate)\\b/i;
-var GOOD_CLS=/\\b(?:primary|default|main|front|first|hero|featured|product-image-primary)\\b/i;
+var BAD_CLS=/\\b(?:hide|hidden|secondary|hover|alt|back|second|swap|two|gallery-secondary|alternate|secondary_thumb|product_thumb_2|thumb_alt|thumb_hover)\\b/i;
+var GOOD_CLS=/\\b(?:show|visible|primary|default|main|front|first|hero|featured|product-image-primary|product_thumb|primary_thumb)\\b/i;
 
 function pickImgSrc(img){
   var src=img.currentSrc||img.src||img.getAttribute('data-src')||img.getAttribute('data-lazy-src')||img.getAttribute('data-original');
@@ -393,6 +393,18 @@ function scoreImage(img,src,position){
   var score=0;
   // DOM order: first under the anchor wins by a few points.
   score-=position*3;
+  // Visibility — hover-swap secondary images are typically display:none or
+  // opacity:0 in the default state. offsetParent===null means "not rendered".
+  // offsetWidth/Height === 0 catches display:none and visibility:hidden.
+  if(img.offsetParent===null)score-=40;
+  else if(img.offsetWidth===0||img.offsetHeight===0)score-=25;
+  // Loading hints — sites mark their default visible image with loading=eager
+  // and fetchpriority=high; the swap image is loading=lazy with no priority.
+  if(img.loading==='eager')score+=15;
+  if(img.loading==='lazy')score-=5;
+  var fp=img.getAttribute('fetchpriority');
+  if(fp==='high')score+=15;
+  else if(fp==='low')score-=5;
   // Class hints — check img and its parent.
   var cls=((img.className||'')+' '+(img.parentElement?(img.parentElement.className||''):'')).toLowerCase();
   if(GOOD_CLS.test(cls))score+=20;
