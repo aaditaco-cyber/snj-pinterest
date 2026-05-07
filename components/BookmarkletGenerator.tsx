@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import { Bookmark, Copy, Loader2, RefreshCw, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import type { Source } from "@/lib/types";
 
@@ -26,6 +26,10 @@ export function BookmarkletGenerator({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  // React 18+ refuses to render or navigate javascript: URLs via its event
+  // system, so we set href on the DOM element via ref rather than as a prop.
+  // Drag-to-bookmark still picks up the DOM-level href correctly.
+  const linkRef = useRef<HTMLAnchorElement>(null);
 
   const open = source !== null;
 
@@ -70,6 +74,14 @@ export function BookmarkletGenerator({
       ? buildConsoleCode({ apiUrl, token, sourceId: source.id })
       : "";
   const linkLabel = source ? `SNJ → ${source.name}` : "SNJ";
+
+  // Set href on the bare DOM element after render — React-managed href would
+  // be sanitized.
+  useEffect(() => {
+    if (linkRef.current && bookmarklet) {
+      linkRef.current.setAttribute("href", bookmarklet);
+    }
+  }, [bookmarklet]);
 
   const handleRegenerate = async () => {
     if (!confirm("Regenerating invalidates any bookmarks already in your bar. Continue?")) {
@@ -169,8 +181,13 @@ export function BookmarkletGenerator({
                     <div className="flex justify-center">
                       {/* eslint-disable-next-line @next/next/no-html-link-for-pages, jsx-a11y/anchor-is-valid */}
                       <a
-                        href={bookmarklet}
-                        onClick={(e) => e.preventDefault()}
+                        ref={linkRef}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          alert(
+                            "Drag this to your bookmarks bar — clicking it here won't run the script.",
+                          );
+                        }}
                         className="flex items-center gap-1.5 rounded-full bg-foreground px-4 py-2 text-sm font-medium text-background no-underline shadow-sm hover:opacity-90"
                         draggable
                       >
