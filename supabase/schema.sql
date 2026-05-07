@@ -18,6 +18,7 @@
 -- ─── Drop existing ─────────────────────────────────────────────────────────
 drop trigger if exists on_auth_user_created on auth.users;
 drop function if exists public.handle_new_user();
+drop table if exists public.user_bookmarklet_tokens cascade;
 drop table if exists public.swipe_actions cascade;
 drop table if exists public.folder_items cascade;
 drop table if exists public.user_product_states cascade;
@@ -105,6 +106,12 @@ create table public.swipe_actions (
   timestamp timestamptz not null default now()
 );
 
+create table public.user_bookmarklet_tokens (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  token text not null unique,
+  created_at timestamptz not null default now()
+);
+
 -- ─── Indexes ────────────────────────────────────────────────────────────────
 
 create index products_date_idx on public.products (date_discovered desc);
@@ -126,6 +133,7 @@ alter table public.user_product_states enable row level security;
 alter table public.folders enable row level security;
 alter table public.folder_items enable row level security;
 alter table public.swipe_actions enable row level security;
+alter table public.user_bookmarklet_tokens enable row level security;
 
 -- Sources: any authenticated user can read or add; only the creator can
 -- modify or remove. added_by is set to auth.uid() at insert time and cannot
@@ -159,6 +167,8 @@ create policy "own folders" on public.folders
 create policy "own folder_items" on public.folder_items
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "own swipe_actions" on public.swipe_actions
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "own bookmarklet tokens" on public.user_bookmarklet_tokens
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ─── Seed default folders for new users ─────────────────────────────────────

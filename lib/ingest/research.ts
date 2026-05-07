@@ -89,18 +89,10 @@ export async function scrapeResearchPage(
   }
 
   const origin = safeOrigin(url);
+  const fromHtml = extractProductsFromHtml(html, url, retailer);
+  if (fromHtml.length > 0) return fromHtml.slice(0, MAX_PER_PAGE);
 
-  // 1. JSON-LD
-  const ldProducts = extractJsonLdProducts(html, origin, retailer);
-  if (ldProducts.length > 0) {
-    return ldProducts.slice(0, MAX_PER_PAGE);
-  }
-
-  // 2. OpenGraph (typically only the focal product on a PDP)
-  const og = extractOpenGraph(html, url, retailer);
-  if (og) return [og];
-
-  // 3. Shopify fallback
+  // Shopify fallback (only useful when the HTML didn't surface anything).
   if (origin) {
     try {
       const shopifyProducts = await ingestShopify(
@@ -119,6 +111,68 @@ export async function scrapeResearchPage(
   }
 
   return [];
+}
+
+/**
+ * Extract products from already-fetched HTML. Used both by the server-side
+ * scraper and by the bookmarklet ingest endpoint (which receives an HTML
+ * snapshot from the user's browser).
+ */
+export function extractProductsFromHtml(
+  html: string,
+  pageUrl: string,
+  retailer: string,
+): InternalIngestProduct[] {
+  const origin = safeOrigin(pageUrl);
+  const ld = extractJsonLdProducts(html, origin, retailer);
+  if (ld.length > 0) return ld;
+  const og = extractOpenGraph(html, pageUrl, retailer);
+  return og ? [og] : [];
+}
+
+/**
+ * Process pre-parsed JSON-LD blocks (sent by the bookmarklet) plus an
+ * OpenGraph map. Equivalent to `extractProductsFromHtml` but skips the HTML
+ * parsing step.
+ */
+export function extractProductsFromLd(
+  ldBlocks: unknown[],
+  og: Record<string, string>,
+  pageUrl: string,
+  retailer: string,
+): IngestProduct[] {
+  const origin = safeOrigin(pageUrl);
+  const products: InternalIngestProduct[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const block of ldBlocks) {
+    walkLd(block, (node) => {
+      if (isProduct(node)) {
+        const p = ldProductToIngest(node, origin, retailer);
+        if (p && !seenUrls.has(p.productUrl)) {
+          seenUrls.add(p.productUrl);
+          products.push({ ...p, _source: "json-ld" });
+        }
+      } else if (isItemList(node) && Array.isArray(node.itemListElement)) {
+        for (const el of node.itemListElement) {
+          if (typeof el.item === "object" && el.item) {
+            const p = ldProductToIngest(el.item, origin, retailer);
+            if (p && !seenUrls.has(p.productUrl)) {
+              seenUrls.add(p.productUrl);
+              products.push({ ...p, _source: "json-ld" });
+            }
+          }
+        }
+      }
+    });
+  }
+
+  if (products.length === 0) {
+    const fromOg = ogMapToProduct(og, pageUrl, retailer);
+    if (fromOg) products.push(fromOg);
+  }
+
+  return products.slice(0, MAX_PER_PAGE).map(stripInternal);
 }
 
 interface InternalIngestProduct extends IngestProduct {
@@ -370,20 +424,37 @@ function extractOpenGraph(
     const m = re.exec(html);
     return m?.[1];
   };
-  const ogType = get("og:type");
-  if (!ogType || !/product/i.test(ogType)) return null;
+  const map: Record<string, string> = {};
+  for (const key of [
+    "og:type",
+    "og:title",
+    "og:image",
+    "og:url",
+    "product:price:amount",
+    "og:price:amount",
+    "twitter:data1",
+  ]) {
+    const v = get(key);
+    if (v) map[key] = v;
+  }
+  return ogMapToProduct(map, pageUrl, retailer);
+}
 
-  const title = get("og:title");
+function ogMapToProduct(
+  map: Record<string, string>,
+  pageUrl: string,
+  retailer: string,
+): InternalIngestProduct | null {
+  const ogType = map["og:type"];
+  if (!ogType || !/product/i.test(ogType)) return null;
+  const title = map["og:title"];
   if (!title) return null;
-  const image = get("og:image") ?? "";
-  const url = get("og:url") ?? pageUrl;
+  const image = map["og:image"] ?? "";
+  const url = map["og:url"] ?? pageUrl;
   const priceRaw =
-    get("product:price:amount") ??
-    get("og:price:amount") ??
-    get("twitter:data1");
+    map["product:price:amount"] ?? map["og:price:amount"] ?? map["twitter:data1"];
   const priceN = priceRaw ? parseFloat(priceRaw.replace(/[^0-9.]/g, "")) : NaN;
   const price = Number.isFinite(priceN) && priceN > 0 ? priceN : undefined;
-
   return {
     title,
     imageUrl: image,

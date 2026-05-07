@@ -491,6 +491,52 @@ export async function deleteRecentSwipe(productId: string): Promise<void> {
   await supabase.from("swipe_actions").delete().eq("id", data[0].id);
 }
 
+// ─── Bookmarklet token ──────────────────────────────────────────────────────
+
+/**
+ * Look up the calling user's bookmarklet token, generating one on first use.
+ * Tokens are 32-char hex strings — enough entropy that they're effectively
+ * unguessable while still URL-safe for embedding in a bookmarklet.
+ */
+export async function getOrCreateBookmarkletToken(
+  userId: string,
+): Promise<string> {
+  const supabase = getSupabaseBrowser();
+  const { data: existing, error: lookupErr } = await supabase
+    .from("user_bookmarklet_tokens")
+    .select("token")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (lookupErr) throw lookupErr;
+  if (existing?.token) return existing.token;
+
+  const token = generateToken();
+  const { error: insertErr } = await supabase
+    .from("user_bookmarklet_tokens")
+    .insert({ user_id: userId, token });
+  if (insertErr) throw insertErr;
+  return token;
+}
+
+export async function regenerateBookmarkletToken(
+  userId: string,
+): Promise<string> {
+  const supabase = getSupabaseBrowser();
+  const token = generateToken();
+  const { error } = await supabase
+    .from("user_bookmarklet_tokens")
+    .upsert({ user_id: userId, token }, { onConflict: "user_id" });
+  if (error) throw error;
+  return token;
+}
+
+function generateToken(): string {
+  // Web crypto is available in the browser. Two UUIDs joined gives ~256 bits.
+  const a = crypto.randomUUID().replace(/-/g, "");
+  const b = crypto.randomUUID().replace(/-/g, "");
+  return `${a}${b}`;
+}
+
 // ─── Reset ──────────────────────────────────────────────────────────────────
 
 /**

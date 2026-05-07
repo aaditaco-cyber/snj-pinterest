@@ -64,6 +64,8 @@ interface StoreState {
   toggleSourceActive: (id: string) => Promise<void>;
   removeSource: (id: string) => Promise<void>;
   ingestResearchSource: (sourceId: string) => Promise<{ added: number; skipped: number; reason?: string }>;
+  getBookmarkletToken: () => Promise<string | null>;
+  regenerateBookmarkletToken: () => Promise<string | null>;
 
   // Folders
   addFolder: (input: { name: string; color: string; icon?: string }) => Promise<string | null>;
@@ -288,6 +290,28 @@ export const useStore = create<StoreState>()((set, get) => ({
       return created.id;
     } catch (e) {
       console.error("addResearchSource failed:", e);
+      return null;
+    }
+  },
+
+  getBookmarkletToken: async () => {
+    const userId = get().userId;
+    if (!userId) return null;
+    try {
+      return await repo.getOrCreateBookmarkletToken(userId);
+    } catch (e) {
+      console.error("getBookmarkletToken failed:", e);
+      return null;
+    }
+  },
+
+  regenerateBookmarkletToken: async () => {
+    const userId = get().userId;
+    if (!userId) return null;
+    try {
+      return await repo.regenerateBookmarkletToken(userId);
+    } catch (e) {
+      console.error("regenerateBookmarkletToken failed:", e);
       return null;
     }
   },

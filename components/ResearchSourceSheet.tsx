@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import {
+  Bookmark,
   Download,
   Loader2,
   Plus,
@@ -11,6 +12,7 @@ import {
 import { useEffect, useState } from "react";
 import { useStore } from "@/lib/store";
 import { CATEGORIES } from "@/lib/categories";
+import { BookmarkletGenerator } from "@/components/BookmarkletGenerator";
 import type { JewelryCategory, Source } from "@/lib/types";
 
 /**
@@ -37,6 +39,7 @@ export function ResearchSourceSheet({
   const [adding, setAdding] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [resultById, setResultById] = useState<Record<string, string>>({});
+  const [bookmarkletSource, setBookmarkletSource] = useState<Source | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -128,6 +131,7 @@ export function ResearchSourceSheet({
                     busy={busyId === source.id}
                     result={resultById[source.id] ?? ""}
                     onRefresh={() => handleRefresh(source.id)}
+                    onBookmarklet={() => setBookmarkletSource(source)}
                     onDelete={() => {
                       if (confirm(`Remove "${source.name}"?`)) {
                         removeSource(source.id);
@@ -144,6 +148,10 @@ export function ResearchSourceSheet({
               )}
             </div>
           </motion.div>
+          <BookmarkletGenerator
+            source={bookmarkletSource}
+            onClose={() => setBookmarkletSource(null)}
+          />
         </>
       )}
     </AnimatePresence>
@@ -156,6 +164,7 @@ function SourceRow({
   busy,
   result,
   onRefresh,
+  onBookmarklet,
   onDelete,
 }: {
   source: Source;
@@ -163,6 +172,7 @@ function SourceRow({
   busy: boolean;
   result: string;
   onRefresh: () => void;
+  onBookmarklet: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -224,6 +234,14 @@ function SourceRow({
                 Refresh
               </>
             )}
+          </button>
+          <button
+            onClick={onBookmarklet}
+            title="For sites we can't scrape — runs in your browser"
+            className="flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-medium text-muted hover:text-foreground"
+          >
+            <Bookmark className="h-3 w-3" />
+            Bookmarklet
           </button>
           {isOwner && (
             <button

@@ -45,6 +45,12 @@ export type Database = {
         Update: Partial<SwipeActionInsert>;
         Relationships: [];
       };
+      user_bookmarklet_tokens: {
+        Row: BookmarkletTokenRow;
+        Insert: BookmarkletTokenInsert;
+        Update: Partial<BookmarkletTokenInsert>;
+        Relationships: [];
+      };
     };
     Views: { [_ in never]: never };
     Functions: { [_ in never]: never };
@@ -197,4 +203,15 @@ export type SwipeActionInsert = {
   action: "skip" | "save";
   folder_ids?: string[];
   timestamp?: string;
+};
+
+export type BookmarkletTokenRow = {
+  user_id: string;
+  token: string;
+  created_at: string;
+};
+export type BookmarkletTokenInsert = {
+  user_id: string;
+  token: string;
+  created_at?: string;
 };
