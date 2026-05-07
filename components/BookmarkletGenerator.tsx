@@ -63,6 +63,12 @@ export function BookmarkletGenerator({
     token && source
       ? buildBookmarklet({ apiUrl, token, sourceId: source.id })
       : "";
+  // Same code, but unwrapped from the `javascript:` URL so it can be pasted
+  // into DevTools console on sites with strict CSP that block bookmarklets.
+  const consoleCode =
+    token && source
+      ? buildConsoleCode({ apiUrl, token, sourceId: source.id })
+      : "";
   const linkLabel = source ? `SNJ → ${source.name}` : "SNJ";
 
   const handleRegenerate = async () => {
@@ -80,6 +86,17 @@ export function BookmarkletGenerator({
     if (!bookmarklet) return;
     try {
       await navigator.clipboard.writeText(bookmarklet);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // fall through silently
+    }
+  };
+
+  const handleCopyConsole = async () => {
+    if (!consoleCode) return;
+    try {
+      await navigator.clipboard.writeText(consoleCode);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -202,7 +219,43 @@ export function BookmarkletGenerator({
 
               <details className="mt-4 rounded-2xl border border-border bg-background p-3 text-xs">
                 <summary className="cursor-pointer font-medium text-muted">
-                  Security &amp; troubleshooting
+                  Bookmarklet didn&apos;t work? Run from console
+                </summary>
+                <p className="mt-2 text-muted-2">
+                  Some sites (Cloudflare-protected, strict CSP) block
+                  bookmarklets from running. The browser&apos;s DevTools
+                  Console doesn&apos;t enforce the same restrictions, so
+                  pasting the code there usually works.
+                </p>
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-muted">
+                  <li>
+                    On the retailer page, open DevTools:{" "}
+                    <kbd className="rounded bg-card px-1 font-mono text-[10px]">
+                      Cmd+Opt+I
+                    </kbd>{" "}
+                    (Mac) or{" "}
+                    <kbd className="rounded bg-card px-1 font-mono text-[10px]">
+                      F12
+                    </kbd>
+                  </li>
+                  <li>Click the <strong>Console</strong> tab.</li>
+                  <li>
+                    Click <strong>Copy code</strong> below, paste into the
+                    console, hit Enter.
+                  </li>
+                </ol>
+                <button
+                  onClick={handleCopyConsole}
+                  className="mt-3 flex w-full items-center justify-center gap-1 rounded-full border border-border bg-card py-1.5 text-xs font-medium text-muted hover:text-foreground"
+                >
+                  <Copy className="h-3 w-3" />
+                  {copied ? "Copied!" : "Copy console code"}
+                </button>
+              </details>
+
+              <details className="mt-3 rounded-2xl border border-border bg-background p-3 text-xs">
+                <summary className="cursor-pointer font-medium text-muted">
+                  Security &amp; token regeneration
                 </summary>
                 <p className="mt-2 text-muted-2">
                   Each user has one personal token. Anyone who can use this
@@ -247,6 +300,33 @@ function buildBookmarklet({
 }) {
   // Single-statement IIFE. Sends Content-Type: text/plain so the request stays
   // a "simple request" and doesn't trigger a CORS preflight.
-  const code = `(async()=>{try{var blocks=Array.prototype.map.call(document.querySelectorAll('script[type="application/ld+json"]'),function(s){return s.textContent;}).filter(Boolean);var parsed=[];for(var i=0;i<blocks.length;i++){try{parsed.push(JSON.parse(blocks[i]));}catch(_){}}var og={};Array.prototype.forEach.call(document.querySelectorAll('meta'),function(m){var k=m.getAttribute('property')||m.getAttribute('name');var v=m.getAttribute('content');if(k&&v&&(k.indexOf('og:')===0||k.indexOf('product:')===0||k.indexOf('twitter:')===0))og[k]=v;});var r=await fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:${JSON.stringify(token)},sourceId:${JSON.stringify(sourceId)},url:location.href,title:document.title,ldBlocks:parsed,og:og})});var d=await r.json();alert('SNJ: '+(d.message||d.reason||'done'));}catch(e){alert('SNJ error: '+(e&&e.message||e));}})();`;
+  const code = bookmarkletBody({ apiUrl, token, sourceId });
   return `javascript:${encodeURIComponent(code)}`;
+}
+
+/** Same code, unwrapped — for paste into DevTools console. */
+function buildConsoleCode({
+  apiUrl,
+  token,
+  sourceId,
+}: {
+  apiUrl: string;
+  token: string;
+  sourceId: string;
+}) {
+  return bookmarkletBody({ apiUrl, token, sourceId });
+}
+
+function bookmarkletBody({
+  apiUrl,
+  token,
+  sourceId,
+}: {
+  apiUrl: string;
+  token: string;
+  sourceId: string;
+}) {
+  // The console.log calls help debug when this runs in DevTools — bookmarklet
+  // path benefits too if the user has the console open.
+  return `(async()=>{try{console.log('[SNJ] bookmarklet running…');var blocks=Array.prototype.map.call(document.querySelectorAll('script[type="application/ld+json"]'),function(s){return s.textContent;}).filter(Boolean);var parsed=[];for(var i=0;i<blocks.length;i++){try{parsed.push(JSON.parse(blocks[i]));}catch(_){}}console.log('[SNJ] ld+json blocks parsed:',parsed.length);var og={};Array.prototype.forEach.call(document.querySelectorAll('meta'),function(m){var k=m.getAttribute('property')||m.getAttribute('name');var v=m.getAttribute('content');if(k&&v&&(k.indexOf('og:')===0||k.indexOf('product:')===0||k.indexOf('twitter:')===0))og[k]=v;});console.log('[SNJ] og keys:',Object.keys(og).length);var r=await fetch(${JSON.stringify(apiUrl)},{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({token:${JSON.stringify(token)},sourceId:${JSON.stringify(sourceId)},url:location.href,title:document.title,ldBlocks:parsed,og:og})});var d=await r.json();console.log('[SNJ] result:',d);alert('SNJ: '+(d.message||d.reason||'done'));}catch(e){console.error('[SNJ] error:',e);alert('SNJ error: '+(e&&e.message||e));}})();`;
 }
