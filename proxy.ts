@@ -63,6 +63,11 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|api/cron|.*\\.svg|.*\\.png|.*\\.webmanifest).*)",
+    // The bookmarklet endpoint is intentionally cross-origin (called from the
+    // user's browser tab on a third-party retailer page). It carries no
+    // session cookie and authenticates via its own per-user token instead.
+    // Excluding it from the proxy lets the route handler return CORS headers
+    // instead of a redirect-to-login.
+    "/((?!_next/static|_next/image|api/cron|api/research/bookmarklet|.*\\.svg|.*\\.png|.*\\.webmanifest).*)",
   ],
 };
