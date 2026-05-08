@@ -39,9 +39,28 @@ export default function ResearchPage() {
     [researchSources],
   );
 
+  const clearAll = useStore((s) => s.clearAllResearchProducts);
+
   const [filter, setFilter] = useState<ResearchFilter>(DEFAULT_FILTER);
   const [openProduct, setOpenProduct] = useState<Product | null>(null);
   const [sourceSheetOpen, setSourceSheetOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  const handleClearAll = async () => {
+    if (clearing) return;
+    const pwd = window.prompt(
+      "This deletes every research product across all teammates. Type the password to confirm:",
+    );
+    if (pwd === null) return;
+    if (pwd !== "password") {
+      alert("Wrong password.");
+      return;
+    }
+    setClearing(true);
+    const n = await clearAll();
+    setClearing(false);
+    alert(`Cleared ${n} product${n === 1 ? "" : "s"}.`);
+  };
 
   const savedProductIds = useMemo(
     () => new Set(folderItems.map((fi) => fi.productId)),
@@ -73,13 +92,23 @@ export default function ResearchPage() {
             {researchSources.length === 1 ? "" : "s"}
           </p>
         </div>
-        <button
-          onClick={() => setSourceSheetOpen(true)}
-          className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-background"
-        >
-          <Settings2 className="h-3.5 w-3.5" />
-          {noSources ? "Add source" : "Edit sources"}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={handleClearAll}
+            disabled={clearing}
+            title="Delete every research product (password required, affects everyone)"
+            className="text-[11px] text-skip hover:underline disabled:opacity-50"
+          >
+            {clearing ? "Clearing…" : "Clear all"}
+          </button>
+          <button
+            onClick={() => setSourceSheetOpen(true)}
+            className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium hover:bg-background"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+            {noSources ? "Add source" : "Edit sources"}
+          </button>
+        </div>
       </header>
 
       <FilterBar

@@ -65,6 +65,7 @@ interface StoreState {
   toggleSourceActive: (id: string) => Promise<void>;
   removeSource: (id: string) => Promise<void>;
   ingestResearchSource: (sourceId: string) => Promise<{ added: number; skipped: number; reason?: string }>;
+  clearAllResearchProducts: () => Promise<number>;
   getBookmarkletToken: () => Promise<string | null>;
   regenerateBookmarkletToken: () => Promise<string | null>;
 
@@ -329,6 +330,30 @@ export const useStore = create<StoreState>()((set, get) => ({
     } catch (e) {
       console.error("regenerateBookmarkletToken failed:", e);
       return null;
+    }
+  },
+
+  clearAllResearchProducts: async () => {
+    try {
+      const n = await repo.clearAllResearchProducts();
+      const researchIds = new Set(
+        get()
+          .sources.filter((s) => s.kind === "research")
+          .map((s) => s.id),
+      );
+      set((s) => ({
+        products: s.products.filter(
+          (p) => !p.sourceId || !researchIds.has(p.sourceId),
+        ),
+        folderItems: s.folderItems.filter((fi) => {
+          const p = s.products.find((x) => x.id === fi.productId);
+          return !p || !p.sourceId || !researchIds.has(p.sourceId);
+        }),
+      }));
+      return n;
+    } catch (e) {
+      console.error("clearAllResearchProducts failed:", e);
+      return 0;
     }
   },
 

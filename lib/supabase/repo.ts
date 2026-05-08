@@ -358,6 +358,29 @@ export async function deleteSource(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * Hard-delete every product belonging to a research-kind source. Cascades to
+ * folder_items, swipe_actions, and user_product_states via FK. Affects ALL
+ * users because products are shared globally — gate this behind a password
+ * confirmation in the UI.
+ */
+export async function clearAllResearchProducts(): Promise<number> {
+  const supabase = getSupabaseBrowser();
+  const { data: srcs, error: srcErr } = await supabase
+    .from("sources")
+    .select("id")
+    .eq("kind", "research");
+  if (srcErr) throw srcErr;
+  const ids = (srcs ?? []).map((s) => s.id);
+  if (ids.length === 0) return 0;
+  const { error, count } = await supabase
+    .from("products")
+    .delete({ count: "exact" })
+    .in("source_id", ids);
+  if (error) throw error;
+  return count ?? 0;
+}
+
 // ─── Folders ────────────────────────────────────────────────────────────────
 
 export async function addFolderRow(
